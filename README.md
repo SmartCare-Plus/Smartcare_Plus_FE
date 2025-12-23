@@ -1,16 +1,19 @@
-# smartcare_plus
+# 🚨 Fall Detection & Prevention Module
 
-A new Flutter project.
+## 📌 Overview
+Falls are one of the leading causes of serious injuries among elderly individuals, especially those with arthritis and mobility limitations.  
+This module focuses on **real-time fall detection and proactive fall prevention** using computer vision–based human activity analysis.
 
-## Getting Started
+The system continuously monitors physical movements through **multiple CCTV camera feeds**, identifies abnormal or unstable activities, and alerts caregivers while also providing **on-screen preventive warnings** to reduce fall risks.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## 🎯 Research Problem
+Elderly individuals often face:
+- Delayed assistance after falls
+- Lack of continuous monitoring
+- Absence of early warnings before falls occur
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Most existing fall detection systems are **reactive**, identifying falls only after they happen, which increases the risk of severe injuries.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
