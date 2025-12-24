@@ -46,3 +46,23 @@ This combined **detection + prevention** approach improves safety and response t
   - **Critical (Fall Detected)**
 
 ---
+### ⚠️ Fall Prevention
+- Identifies unstable movements before a fall
+- Displays on-screen warnings such as:
+  - “Walk slowly”
+  - “Please sit down and rest”
+  - “Unstable movement detected”
+- Aims to reduce fall occurrence through early intervention
+
+---
+
+### 🔔 Caregiver Alerts
+- Instant notifications sent when:
+  - A fall is detected
+  - Repeated unstable movements are observed
+- Alerts include:
+  - Time of incident
+  - Location / camera zone
+  - Severity level
+
+---
