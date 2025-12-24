@@ -17,3 +17,32 @@ Elderly individuals often face:
 Most existing fall detection systems are **reactive**, identifying falls only after they happen, which increases the risk of severe injuries.
 
 ---
+
+
+## 💡 Proposed Solution
+This research proposes an **AI-driven Fall Detection and Prevention System** that:
+
+- Analyzes human movement patterns in real time
+- Detects unstable or abnormal activities
+- Classifies fall risk levels
+- Sends immediate alerts to caregivers
+- Displays preventive warnings to the elderly before a fall occurs
+
+This combined **detection + prevention** approach improves safety and response time.
+
+---
+
+## 🧠 Key Features
+
+### 🔍 Fall Detection
+- Real-time monitoring via CCTV cameras
+- Detects events such as:
+  - Sudden collapse
+  - Loss of balance
+  - Prolonged inactivity
+- Risk classification:
+  - **Normal**
+  - **Warning**
+  - **Critical (Fall Detected)**
+
+---
