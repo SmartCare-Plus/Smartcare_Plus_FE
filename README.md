@@ -66,3 +66,71 @@ This combined **detection + prevention** approach improves safety and response t
   - Severity level
 
 ---
+
+## 🧩 System Workflow
+1. CCTV cameras capture live video streams  
+2. Video frames are processed using the fall detection model  
+3. Human activities are analyzed and classified  
+4. Risk level is determined (Normal / Warning / Critical)  
+5. Alerts and preventive warnings are triggered  
+
+---
+
+## 🏗️ Technologies Used
+- Python  
+- OpenCV  
+- Machine Learning / Deep Learning  
+- Human Activity Recognition (HAR)  
+- Flutter (Frontend)  
+- GitHub  
+
+---
+
+## 📊 Evaluation Metrics
+The system performance is evaluated using:
+- Accuracy  
+- Precision  
+- Recall  
+- F1-score  
+- Confusion Matrix  
+
+---
+
+## 📱 UI Integration
+Detection results are visualized in the mobile application through:
+- Live health status indicators
+- Activity timeline
+- Alert notifications
+- Fall risk heatmap
+
+---
+
+## 🚧 Current Status
+- Dataset preprocessing completed  
+- Model training in progress  
+- Flutter UI prototype completed  
+- Real-time integration under development  
+
+---
+
+## 🔮 Future Enhancements
+- Wearable sensor integration  
+- Voice-based alerts  
+- Predictive fall risk scoring  
+- Cloud-based monitoring  
+- Model optimization for real-time use  
+
+---
+
+## ⚠️ Disclaimer
+This module is developed strictly for **academic and research purposes** and is not intended to replace professional medical care or emergency services.
+
+---
+
+## 👩‍⚕️ Target Users
+- Elderly individuals with mobility limitations  
+- Caregivers  
+- Family members  
+- Healthcare professionals  
+
+---
