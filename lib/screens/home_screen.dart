@@ -13,3 +13,7 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
+Text(
+  "Welcome to Dummy App",
+  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+),
