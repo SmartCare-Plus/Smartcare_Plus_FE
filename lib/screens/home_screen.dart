@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'services_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -20,4 +21,15 @@ Text(
 CustomButton(
   text: "Get Started",
   onPressed: () {},
+),
+ElevatedButton(
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ServicesScreen(),
+      ),
+    );
+  },
+  child: const Text("View Services"),
 ),
