@@ -17,3 +17,7 @@ Text(
   "Welcome to Dummy App",
   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
 ),
+CustomButton(
+  text: "Get Started",
+  onPressed: () {},
+),
