@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -32,4 +33,13 @@ ElevatedButton(
     );
   },
   child: const Text("View Services"),
+  onPressed: () {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => const ProfileScreen(),
+    ),
+  );
+},
+
 ),
