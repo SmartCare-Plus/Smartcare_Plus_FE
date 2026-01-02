@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'services_screen.dart';
 import 'profile_screen.dart';
+import '../services/user_service.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -13,6 +14,9 @@ class HomeScreen extends StatelessWidget {
         child: Text("Welcome to Dummy App"),
       ),
     );
+    final userService = UserService();
+    print(userService.getUserName());
+
   }
 }
 Text(
