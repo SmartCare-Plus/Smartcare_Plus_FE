@@ -2,7 +2,19 @@ import 'package:flutter/material.dart';
 import 'register_screen.dart';
 import '../services/auth_service.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatelessWidget {TextField(
+  decoration: const InputDecoration(
+    labelText: "Email",
+    errorText: null,
+  ),
+),
+TextField(
+  decoration: const InputDecoration(
+    labelText: "Email",
+    errorText: null,
+  ),
+),
+
   const LoginScreen({super.key});
 
   @override
