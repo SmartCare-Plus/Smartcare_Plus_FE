@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'register_screen.dart';
+import '../services/auth_service.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -43,4 +44,8 @@ TextButton(
     );
   },
   child: const Text("Don't have an account? Register"),
+
+  final authService = AuthService();
+  print(authService.login("test@test.com", "123456"));
+
 ),
