@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 
+theme: ThemeData(
+  primarySwatch: Colors.blue,
+),
+
 void main() {
   runApp(const MyApp());
 }
