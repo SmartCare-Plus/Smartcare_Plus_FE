@@ -125,3 +125,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 }
+appBar: AppBar(
+  title: const Text("Home"),
+  centerTitle: true,
+),
