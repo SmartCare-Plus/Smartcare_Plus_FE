@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 
+routes: {
+  '/login': (context) => const LoginScreen(),
+  '/register': (context) => const RegisterScreen(),
+},
+home: const LoginScreen(),
+
 theme: ThemeData(
   primarySwatch: Colors.blue,
 ),
