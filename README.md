@@ -75,14 +75,21 @@ This combined **detection + prevention** approach improves safety and response t
 5. Alerts and preventive warnings are triggered  
 
 ---
+##🏗️ System Architecture
+
+The system follows a camera-to-caregiver pipeline architecture:
+
+<img width="1184" height="842" alt="image" src="https://github.com/user-attachments/assets/637c8f2a-8a9a-4693-a06a-8d2b9d307623" />
 
 ## 🏗️ Technologies Used
-- Python  
-- OpenCV  
-- Machine Learning / Deep Learning  
-- Human Activity Recognition (HAR)  
-- Flutter (Frontend)  
-- GitHub  
+Programming Language: Python
+Computer Vision: OpenCV
+Pose Estimation: MediaPipe / OpenPose
+AI / Deep Learning: MoViNet
+Frontend (Caregiver App): Flutter (Android & iOS)
+Backend APIs: FastAPI
+Database: Firebase (Realtime Database / Firestore)
+Version Control: GitHub
 
 ---
 
