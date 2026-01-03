@@ -81,6 +81,23 @@ The system follows a camera-to-caregiver pipeline architecture:
 
 <img width="1184" height="842" alt="image" src="https://github.com/user-attachments/assets/637c8f2a-8a9a-4693-a06a-8d2b9d307623" />
 
+## 📦 Project Dependencies
+- 🖥️ Frontend:
+Flutter – Cross-platform mobile application development (Android & iOS)
+- 🔧 Backend:
+ FastAPI (Python) – High-performance REST API framework
+- 🧠 AI / Machine Learning:
+ MoViNet – Video-based human activity recognition model
+ TensorFlow / PyTorch – Model training and inference
+- 🎥 Video Processing:
+ OpenCV – Video frame processing
+ MediaPipe (or OpenPose) – Pose estimation and keypoint extraction
+🗄️ Database:
+Firebase – Real-time database, authentication, and cloud data storage
+- 🚨 Alerts & Notifications:
+Firebase Cloud Messaging (FCM) – Push notifications
+SMS / Email APIs – Emergency alerts to caregivers
+
 ## 🏗️ Technologies Used
 - Programming Language: Python
 - Computer Vision: OpenCV
