@@ -82,14 +82,14 @@ The system follows a camera-to-caregiver pipeline architecture:
 <img width="1184" height="842" alt="image" src="https://github.com/user-attachments/assets/637c8f2a-8a9a-4693-a06a-8d2b9d307623" />
 
 ## 🏗️ Technologies Used
-Programming Language: Python
-Computer Vision: OpenCV
-Pose Estimation: MediaPipe / OpenPose
-AI / Deep Learning: MoViNet
-Frontend (Caregiver App): Flutter (Android & iOS)
-Backend APIs: FastAPI
-Database: Firebase (Realtime Database / Firestore)
-Version Control: GitHub
+- Programming Language: Python
+- Computer Vision: OpenCV
+- Pose Estimation: MediaPipe / OpenPose
+- AI / Deep Learning: MoViNet
+- Frontend (Caregiver App): Flutter (Android & iOS)
+- Backend APIs: FastAPI
+- Database: Firebase (Realtime Database / Firestore)
+- Version Control: GitHub
 
 ---
 
