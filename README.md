@@ -119,21 +119,6 @@ Detection results are visualized in the mobile application through:
 - Real-time integration under development  
 
 ---
-
-## 🔮 Future Enhancements
-- Wearable sensor integration  
-- Voice-based alerts  
-- Predictive fall risk scoring  
-- Cloud-based monitoring  
-- Model optimization for real-time use  
-
----
-
-## ⚠️ Disclaimer
-This module is developed strictly for **academic and research purposes** and is not intended to replace professional medical care or emergency services.
-
----
-
 ## 👩‍⚕️ Target Users
 - Elderly individuals with mobility limitations  
 - Caregivers  
