@@ -130,6 +130,24 @@ Promote safe physical activity without increasing injury risk.
 
 
 ---
+## 📦 Project Dependencies
+- 🖥️ Frontend:
+Flutter – Cross-platform mobile application development (Android & iOS)
+- 🔧 Backend:
+ FastAPI (Python) – High-performance REST API framework
+- 🧠 AI / Machine Learning:
+ MoViNet – Video-based human activity recognition model,
+ CNN – Image/video-based recognition for exercises and meal analysis,
+ TensorFlow / PyTorch – Model training and inference
+- 🎥 Video Processing:
+ OpenCV – Video frame processing,
+ MediaPipe (or OpenPose) – Pose estimation and keypoint extraction
+🗄️ Database:
+Firebase – Real-time database, authentication, and cloud data storage
+- 🚨 Alerts & Notifications:
+Firebase Cloud Messaging (FCM) – Push notifications,
+SMS / Email APIs – Emergency alerts to caregivers
+
 
 ## 🎨 UI/UX Highlights
 
