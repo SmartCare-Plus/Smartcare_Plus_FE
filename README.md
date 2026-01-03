@@ -3,7 +3,7 @@
 ![Status](https://img.shields.io/badge/Status-Prototype-blue)
 ![Domain](https://img.shields.io/badge/Domain-Healthcare-green)
 ![AI](https://img.shields.io/badge/AI-Computer%20Vision-orange)
-![Platform](https://img.shields.io/badge/Platform-Mobile%20%7C%20Web-lightgrey)
+![Platform](https://img.shields.io/badge/Platform-Mobile-lightgrey)
 
 An intelligent elderly care system designed to **monitor daily activities**, **detect and prevent falls**, and **support healthy aging** through **personalized meal plans and exercise recommendations**.
 
@@ -42,10 +42,9 @@ The elderly population, especially individuals with **arthritis and mobility lim
 
 This project proposes a **Smart Elderly Care System** that integrates:
 
-- **AI-based fall detection using multi-camera (CCTV) feeds**
-- **Real-time prevention warnings**
+- **AI-based fall detection and prevention warnings using multi-camera (CCTV) feeds**
 - **Personalized meal recommendation plans**
-- **Safe exercise generation tailored to physical conditions**
+- **Safe exercise generation and monitoring tailored to physical conditions**
 
 The system supports both **elder users** and **caregivers** through an intuitive interface and intelligent alerts.
 
@@ -80,7 +79,7 @@ Ensure proper nutrition tailored to elderly individuals, especially those with a
 Detect falls in real time and **prevent falls before they happen**.
 
 **How it Works:**
-- Activities captured through **multiple CCTV cameras**
+- Activities captured through **CCTV cameras**
 - AI model identifies:
   - Normal activities
   - Unstable movements
@@ -127,6 +126,7 @@ Promote safe physical activity without increasing injury risk.
 ---
 
 ## 🏗 System Architecture (High-Level)
+<img width="1246" height="822" alt="image" src="https://github.com/user-attachments/assets/a087d2f6-2339-4baa-b21e-1c76076f0a2a" />
 
 
 ---
@@ -147,16 +147,6 @@ Promote safe physical activity without increasing injury risk.
 - Family caregivers
 - Professional caregivers
 - Healthcare support staff
-
----
-
-## 🔮 Future Enhancements
-
-- Wearable sensor integration
-- Voice-assisted guidance
-- Machine learning-based personalization
-- Predictive fall risk analysis
-- Integration with healthcare providers
 
 ---
 
