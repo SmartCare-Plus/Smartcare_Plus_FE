@@ -1,5 +1,4 @@
-# 🧓 Smart Elderly Care & Fall Prevention System
-
+# 🧓 SMARTCARE+:AI-BASED REMOTE CARE SYSTEM FOR MONITORING ELDERLY PARENTS’ DAILY HEALTH ACTIVITIES
 ![Status](https://img.shields.io/badge/Status-Prototype-blue)
 ![Domain](https://img.shields.io/badge/Domain-Healthcare-green)
 ![AI](https://img.shields.io/badge/AI-Computer%20Vision-orange)
