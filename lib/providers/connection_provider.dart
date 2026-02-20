@@ -1,414 +1,396 @@
-/// SMARTCARE+ Connection Provider
+/// SMARTCARE+ Guardian Service Provider
 ///
-/// Manages connections between elderly and guardians/caregivers
+/// Riverpod state management for guardian monitoring features
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/services/api_service.dart';
-import '../utils/logger.dart';
-import 'auth_provider.dart';
 
-// ============================================
-// Models
-// ============================================
+// ============= Models =============
 
-class ConnectionInfo {
+class ElderlyStatus {
+  final String elderlyId;
+  final String name;
+  final int age;
+  final String status;
+  final String location;
+  final String lastActivity;
+  final String lastSeen;
+  final Map<String, dynamic>? vitals;
+
+  ElderlyStatus({
+    required this.elderlyId,
+    required this.name,
+    required this.age,
+    required this.status,
+    required this.location,
+    required this.lastActivity,
+    required this.lastSeen,
+    this.vitals,
+  });
+
+  factory ElderlyStatus.fromJson(Map<String, dynamic> json) {
+    return ElderlyStatus(
+      elderlyId: json['elderly_id'] ?? '',
+      name: json['name'] ?? '',
+      age: json['age'] ?? 0,
+      status: json['status'] ?? 'Unknown',
+      location: json['location'] ?? '',
+      lastActivity: json['last_activity'] ?? '',
+      lastSeen: json['last_seen'] ?? '',
+      vitals: json['vitals'],
+    );
+  }
+}
+
+enum AlertSeverity { critical, warning, info }
+enum AlertType { fall, inactivity, sos, medication, geofence }
+
+class Alert {
   final String id;
+  final AlertType type;
+  final AlertSeverity severity;
+  final String title;
+  final String location;
+  final String time;
+  final bool resolved;
   final String elderlyId;
   final String elderlyName;
-  final String linkedUserId;
-  final String linkedUserName;
-  final String connectionType;
-  final String status;
-  final String createdAt;
 
-  ConnectionInfo({
+  Alert({
     required this.id,
+    required this.type,
+    required this.severity,
+    required this.title,
+    required this.location,
+    required this.time,
+    required this.resolved,
     required this.elderlyId,
     required this.elderlyName,
-    required this.linkedUserId,
-    required this.linkedUserName,
-    required this.connectionType,
-    required this.status,
-    required this.createdAt,
   });
 
-  factory ConnectionInfo.fromJson(Map<String, dynamic> json) {
-    return ConnectionInfo(
+  factory Alert.fromJson(Map<String, dynamic> json) {
+    return Alert(
       id: json['id'] ?? '',
+      type: _parseAlertType(json['type']),
+      severity: _parseSeverity(json['severity']),
+      title: json['title'] ?? '',
+      location: json['location'] ?? '',
+      time: json['time'] ?? '',
+      resolved: json['resolved'] ?? false,
       elderlyId: json['elderly_id'] ?? '',
       elderlyName: json['elderly_name'] ?? '',
-      linkedUserId: json['linked_user_id'] ?? '',
-      linkedUserName: json['linked_user_name'] ?? '',
-      connectionType: json['connection_type'] ?? '',
-      status: json['status'] ?? '',
-      createdAt: json['created_at'] ?? '',
     );
+  }
+
+  static AlertType _parseAlertType(String? type) {
+    switch (type) {
+      case 'fall': return AlertType.fall;
+      case 'inactivity': return AlertType.inactivity;
+      case 'sos': return AlertType.sos;
+      case 'medication': return AlertType.medication;
+      case 'geofence': return AlertType.geofence;
+      default: return AlertType.inactivity;
+    }
+  }
+
+  static AlertSeverity _parseSeverity(String? severity) {
+    switch (severity) {
+      case 'critical': return AlertSeverity.critical;
+      case 'warning': return AlertSeverity.warning;
+      case 'info': return AlertSeverity.info;
+      default: return AlertSeverity.info;
+    }
   }
 }
 
-class InviteCodeInfo {
-  final String code;
-  final String expiresAt;
-  final String message;
+class Activity {
+  final String time;
+  final String event;
+  final String location;
+  final String type;
 
-  InviteCodeInfo({
-    required this.code,
-    required this.expiresAt,
-    required this.message,
+  Activity({
+    required this.time,
+    required this.event,
+    required this.location,
+    required this.type,
   });
 
-  factory InviteCodeInfo.fromJson(Map<String, dynamic> json) {
-    return InviteCodeInfo(
-      code: json['code'] ?? '',
-      expiresAt: json['expires_at'] ?? '',
-      message: json['message'] ?? '',
+  factory Activity.fromJson(Map<String, dynamic> json) {
+    return Activity(
+      time: json['time'] ?? '',
+      event: json['event'] ?? '',
+      location: json['location'] ?? '',
+      type: json['type'] ?? '',
     );
   }
 }
 
-/// Available demo video IDs for simulation
-/// Mixed training videos (fall/adl) for testing hybrid detection
-const List<String> availableDemoVideos = [
-  // Training dataset videos - best for hybrid detection testing
-  'fall-01-cam0',  // Fall video from training set
-  'fall-02-cam0',  // Fall video from training set
-  'fall-03-cam0',  // Fall video from training set
-  'fall-04-cam0',  // Fall video from training set
-  'fall-05-cam0',  // Fall video from training set
-  'adl-01-cam0',   // Normal activity
-  'adl-02-cam0',   // Normal activity
-  'adl-03-cam0',   // Normal activity
-  'adl-04-cam0',   // Normal activity
-  'adl-05-cam0',   // Normal activity
-];
-
-/// Assigns a random demo video to an elderly based on their ID
-String _assignRandomVideo(String elderlyId) {
-  // Use elderly ID hash to get consistent but "random" video assignment
-  final hash = elderlyId.hashCode.abs();
-  return availableDemoVideos[hash % availableDemoVideos.length];
-}
-
-class ElderlyInfo {
+class Camera {
   final String id;
   final String name;
-  final String connectionType;
-  final String connectedAt;
-  final String assignedVideoId;
+  final String location;
+  final String status;
+  final String videoFile;
 
-  ElderlyInfo({
+  Camera({
     required this.id,
     required this.name,
-    required this.connectionType,
-    required this.connectedAt,
-    required this.assignedVideoId,
+    required this.location,
+    required this.status,
+    required this.videoFile,
   });
 
-  factory ElderlyInfo.fromJson(Map<String, dynamic> json) {
-    final id = json['id'] ?? '';
-    return ElderlyInfo(
-      id: id,
-      name: json['name'] ?? '',
-      connectionType: json['connection_type'] ?? '',
-      connectedAt: json['connected_at'] ?? '',
-      // Assign a random video based on elderly ID for demo purposes
-      assignedVideoId: json['assigned_video_id'] ?? _assignRandomVideo(id),
-    );
-  }
-
-  /// Get the full video URL for streaming
-  /// Uses /video/live endpoint which checks backend config for camera vs simulated mode
-  String getVideoUrl(String baseUrl) {
-    // Use the live endpoint which respects video_config.json settings
-    // If source_type=camera, streams from webcam/USB camera
-    // If source_type=simulated, streams the configured simulated_video_id
-    return '$baseUrl/api/guardian/video/live';
-  }
-  
-  /// Get video URL for a specific pre-recorded video (bypasses live camera config)
-  String getSimulatedVideoUrl(String baseUrl) {
-    return '$baseUrl/api/guardian/video/$assignedVideoId';
-  }
-}
-
-class CaregiverInfo {
-  final String id;
-  final String name;
-  final String connectionType;
-  final String connectedAt;
-
-  CaregiverInfo({
-    required this.id,
-    required this.name,
-    required this.connectionType,
-    required this.connectedAt,
-  });
-
-  factory CaregiverInfo.fromJson(Map<String, dynamic> json) {
-    return CaregiverInfo(
+  factory Camera.fromJson(Map<String, dynamic> json) {
+    return Camera(
       id: json['id'] ?? '',
       name: json['name'] ?? '',
-      connectionType: json['connection_type'] ?? json['type'] ?? '',
-      connectedAt: json['connected_at'] ?? '',
+      location: json['location'] ?? '',
+      status: json['status'] ?? 'offline',
+      videoFile: json['video_file'] ?? '',
+    );
+  }
+
+  bool get isOnline => status == 'online';
+}
+
+class ActivitySummary {
+  final double activeHours;
+  final double restHours;
+  final int totalEvents;
+
+  ActivitySummary({
+    required this.activeHours,
+    required this.restHours,
+    required this.totalEvents,
+  });
+
+  factory ActivitySummary.fromJson(Map<String, dynamic> json) {
+    return ActivitySummary(
+      activeHours: (json['active_hours'] ?? 0).toDouble(),
+      restHours: (json['rest_hours'] ?? 0).toDouble(),
+      totalEvents: json['total_events'] ?? 0,
     );
   }
 }
 
-// ============================================
-// State
-// ============================================
+// ============= State =============
 
-class ConnectionServiceState {
+class GuardianState {
+  final List<ElderlyStatus> elderlyList;
+  final List<Alert> alerts;
+  final List<Activity> activities;
+  final List<Camera> cameras;
+  final ActivitySummary? activitySummary;
+  final int activeAlertCount;
   final bool isLoading;
   final String? error;
-  final List<ConnectionInfo> connections;
-  final List<ElderlyInfo> linkedElderly;
-  final List<CaregiverInfo> linkedCaregivers;
-  final InviteCodeInfo? activeInviteCode;
 
-  const ConnectionServiceState({
+  const GuardianState({
+    this.elderlyList = const [],
+    this.alerts = const [],
+    this.activities = const [],
+    this.cameras = const [],
+    this.activitySummary,
+    this.activeAlertCount = 0,
     this.isLoading = false,
     this.error,
-    this.connections = const [],
-    this.linkedElderly = const [],
-    this.linkedCaregivers = const [],
-    this.activeInviteCode,
   });
-  
-  // Convenience getters
-  List<ElderlyInfo> get myElderly => linkedElderly;
-  List<CaregiverInfo> get myCaregivers => linkedCaregivers;
 
-  ConnectionServiceState copyWith({
+  GuardianState copyWith({
+    List<ElderlyStatus>? elderlyList,
+    List<Alert>? alerts,
+    List<Activity>? activities,
+    List<Camera>? cameras,
+    ActivitySummary? activitySummary,
+    int? activeAlertCount,
     bool? isLoading,
     String? error,
-    List<ConnectionInfo>? connections,
-    List<ElderlyInfo>? linkedElderly,
-    List<CaregiverInfo>? linkedCaregivers,
-    InviteCodeInfo? activeInviteCode,
   }) {
-    return ConnectionServiceState(
+    return GuardianState(
+      elderlyList: elderlyList ?? this.elderlyList,
+      alerts: alerts ?? this.alerts,
+      activities: activities ?? this.activities,
+      cameras: cameras ?? this.cameras,
+      activitySummary: activitySummary ?? this.activitySummary,
+      activeAlertCount: activeAlertCount ?? this.activeAlertCount,
       isLoading: isLoading ?? this.isLoading,
       error: error,
-      connections: connections ?? this.connections,
-      linkedElderly: linkedElderly ?? this.linkedElderly,
-      linkedCaregivers: linkedCaregivers ?? this.linkedCaregivers,
-      activeInviteCode: activeInviteCode ?? this.activeInviteCode,
     );
   }
 }
 
-// ============================================
-// Notifier
-// ============================================
+// ============= Notifier =============
 
-class ConnectionNotifier extends StateNotifier<ConnectionServiceState> {
+class GuardianNotifier extends StateNotifier<GuardianState> {
   final ApiService _api;
-  final UserProfile? _profile;
 
-  ConnectionNotifier(this._api, this._profile) : super(const ConnectionServiceState());
+  GuardianNotifier(this._api) : super(const GuardianState());
 
-  /// Generate a new invite code
-  Future<InviteCodeInfo?> generateInviteCode() async {
-    AppLogger.connection('Generating invite code...');
+  Future<void> loadElderlyList(String? guardianId) async {
     state = state.copyWith(isLoading: true, error: null);
-
     try {
-      AppLogger.api('POST', '/api/connections/generate-code');
-      final response = await _api.post('/api/connections/generate-code', body: {});
-      AppLogger.api('POST', '/api/connections/generate-code', 
-          statusCode: response.statusCode, 
-          data: response.success ? 'success' : response.error);
-
+      final params = guardianId != null ? {'guardian_id': guardianId} : null;
+      final response = await _api.get('/api/guardian/elderly/list', queryParams: params);
       if (response.success && response.data != null) {
-        final inviteCode = InviteCodeInfo.fromJson(response.data);
-        AppLogger.connection('Code generated: ${inviteCode.code}');
-        state = state.copyWith(isLoading: false, activeInviteCode: inviteCode);
-        return inviteCode;
-      } else {
-        // If server fails, generate a mock code for demo purposes
-        if (response.statusCode == 0) {
-          // Network error - use mock data
-          AppLogger.warning('Network error (statusCode=0), using mock code', tag: 'CONNECT');
-          final mockCode = _generateMockCode();
-          final mockInvite = InviteCodeInfo(
-            code: mockCode,
-            expiresAt: DateTime.now().add(const Duration(hours: 24)).toIso8601String(),
-            message: 'Share this code with your caregiver (Demo Mode)',
-          );
-          state = state.copyWith(isLoading: false, activeInviteCode: mockInvite);
-          return mockInvite;
-        }
-        AppLogger.error('Failed to generate code: ${response.error}', tag: 'CONNECT');
-        state = state.copyWith(
-          isLoading: false,
-          error: response.error ?? 'Failed to generate invite code',
-        );
-        return null;
-      }
-    } catch (e, stackTrace) {
-      AppLogger.error('Exception generating code: $e', tag: 'CONNECT', stackTrace: stackTrace);
-      state = state.copyWith(isLoading: false, error: 'Error: $e');
-      return null;
-    }
-  }
-  
-  String _generateMockCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = DateTime.now().millisecondsSinceEpoch;
-    String code = '';
-    for (int i = 0; i < 6; i++) {
-      code += chars[(random + i * 7) % chars.length];
-    }
-    return code;
-  }
-
-  /// Join using an invite code
-  Future<bool> joinWithCode(String code) async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    try {
-      final response = await _api.post('/api/connections/join', body: {
-        'invite_code': code.toUpperCase().trim(),
-      });
-
-      if (response.success) {
-        // Refresh connections
-        await loadConnections();
-        return true;
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          error: response.error ?? 'Failed to join with invite code',
-        );
-        return false;
-      }
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Error: $e');
-      return false;
-    }
-  }
-
-  /// Load all connections
-  Future<void> loadConnections() async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    try {
-      final response = await _api.get('/api/connections/my-connections');
-
-      if (response.success && response.data != null) {
-        final connectionsList = (response.data['connections'] as List?)
-            ?.map((c) => ConnectionInfo.fromJson(c))
-            .toList() ?? [];
-
-        state = state.copyWith(isLoading: false, connections: connectionsList);
-      } else {
-        state = state.copyWith(isLoading: false);
-      }
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Error: $e');
-    }
-  }
-
-  /// Load elderly users (for guardians/caregivers)
-  Future<void> loadMyElderly() async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    try {
-      final response = await _api.get('/api/connections/my-elderly');
-
-      if (response.success && response.data != null) {
-        final elderlyList = (response.data['elderly'] as List?)
-            ?.map((e) => ElderlyInfo.fromJson(e))
-            .toList() ?? [];
-
-        state = state.copyWith(isLoading: false, linkedElderly: elderlyList);
-      } else {
-        state = state.copyWith(isLoading: false);
-      }
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Error: $e');
-    }
-  }
-
-  /// Load caregivers (for elderly users)
-  Future<void> loadMyCaregivers() async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    try {
-      final response = await _api.get('/api/connections/my-caregivers');
-
-      if (response.success && response.data != null) {
-        final caregiverList = (response.data['caregivers'] as List?)
-            ?.map((c) => CaregiverInfo.fromJson(c))
-            .toList() ?? [];
-
-        state = state.copyWith(isLoading: false, linkedCaregivers: caregiverList);
-      } else {
-        state = state.copyWith(isLoading: false);
-      }
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Error: $e');
-    }
-  }
-
-  /// Remove a connection
-  Future<bool> removeConnection(String connectionId) async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    try {
-      final response = await _api.delete('/api/connections/$connectionId');
-
-      if (response.success) {
-        // Remove from local state
-        final updatedConnections = state.connections
-            .where((c) => c.id != connectionId)
+        final list = (response.data['elderly'] as List)
+            .map((e) => ElderlyStatus.fromJson(e))
             .toList();
-        state = state.copyWith(isLoading: false, connections: updatedConnections);
-        
-        // Reload relevant lists
-        if (_profile?.isElderly == true) {
-          await loadMyCaregivers();
-        } else {
-          await loadMyElderly();
-        }
-        
-        return true;
+        state = state.copyWith(elderlyList: list, isLoading: false);
       } else {
-        state = state.copyWith(
-          isLoading: false,
-          error: response.error ?? 'Failed to remove connection',
-        );
-        return false;
+        state = state.copyWith(isLoading: false, error: response.error);
       }
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Error: $e');
-      return false;
+      state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
-  /// Clear error
+  Future<void> loadAlerts(String guardianId, {String? status}) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final params = status != null ? {'status': status} : null;
+      final response = await _api.get('/api/guardian/alerts/$guardianId', queryParams: params);
+      if (response.success && response.data != null) {
+        final alertList = (response.data['alerts'] as List)
+            .map((a) => Alert.fromJson(a))
+            .toList();
+        state = state.copyWith(
+          alerts: alertList,
+          activeAlertCount: response.data['active_count'] ?? 0,
+          isLoading: false,
+        );
+      } else {
+        state = state.copyWith(isLoading: false, error: response.error);
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> loadActivityLog(String elderlyId, {String? date}) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final params = date != null ? {'date': date} : null;
+      final response = await _api.get('/api/guardian/activity-log/$elderlyId', queryParams: params);
+      if (response.success && response.data != null) {
+        final activityList = (response.data['activities'] as List)
+            .map((a) => Activity.fromJson(a))
+            .toList();
+        state = state.copyWith(
+          activities: activityList,
+          activitySummary: response.data['summary'] != null
+              ? ActivitySummary.fromJson(response.data['summary'])
+              : null,
+          isLoading: false,
+        );
+      } else {
+        state = state.copyWith(isLoading: false, error: response.error);
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> loadCameras(String? guardianId) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final params = guardianId != null ? {'guardian_id': guardianId} : null;
+      final response = await _api.get('/api/guardian/cameras', queryParams: params);
+      if (response.success && response.data != null) {
+        final cameraList = (response.data['cameras'] as List)
+            .map((c) => Camera.fromJson(c))
+            .toList();
+        state = state.copyWith(cameras: cameraList, isLoading: false);
+      } else {
+        state = state.copyWith(isLoading: false, error: response.error);
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> acknowledgeAlert(String alertId, String action, {String? notes}) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _api.put('/api/guardian/alerts/$alertId/acknowledge', body: {
+        'response_action': action,
+        'notes': notes,
+      });
+      // Update local state
+      final updatedAlerts = state.alerts.map((a) {
+        if (a.id == alertId) {
+          return Alert(
+            id: a.id,
+            type: a.type,
+            severity: a.severity,
+            title: a.title,
+            location: a.location,
+            time: a.time,
+            resolved: true,
+            elderlyId: a.elderlyId,
+            elderlyName: a.elderlyName,
+          );
+        }
+        return a;
+      }).toList();
+      state = state.copyWith(
+        alerts: updatedAlerts,
+        activeAlertCount: state.activeAlertCount - 1,
+        isLoading: false,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
+  Future<void> triggerSOS(String elderlyId, {String? message}) async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _api.post('/api/guardian/sos', body: {
+        'elderly_id': elderlyId,
+        'message': message,
+      });
+      state = state.copyWith(isLoading: false);
+    } catch (e) {
+      state = state.copyWith(isLoading: false, error: e.toString());
+    }
+  }
+
   void clearError() {
     state = state.copyWith(error: null);
   }
 }
 
-// ============================================
-// Providers
-// ============================================
+// ============= Providers =============
 
-final connectionProvider = StateNotifierProvider<ConnectionNotifier, ConnectionServiceState>((ref) {
+final guardianProvider = StateNotifierProvider<GuardianNotifier, GuardianState>((ref) {
   final api = ref.watch(apiServiceProvider);
-  final profile = ref.watch(userProfileProvider);
-  return ConnectionNotifier(api, profile);
+  return GuardianNotifier(api);
 });
 
-/// Convenience provider for linked elderly
-final linkedElderlyProvider = Provider<List<ElderlyInfo>>((ref) {
-  return ref.watch(connectionProvider).linkedElderly;
+final alertsProvider = FutureProvider.family<List<Alert>, String>((ref, guardianId) async {
+  final api = ref.watch(apiServiceProvider);
+  final response = await api.get('/api/guardian/alerts/$guardianId');
+  if (response.success && response.data != null) {
+    return (response.data['alerts'] as List).map((a) => Alert.fromJson(a)).toList();
+  }
+  return [];
 });
 
-/// Convenience provider for linked caregivers
-final linkedCaregiversProvider = Provider<List<CaregiverInfo>>((ref) {
-  return ref.watch(connectionProvider).linkedCaregivers;
+final elderlyStatusProvider = FutureProvider.family<ElderlyStatus?, String>((ref, elderlyId) async {
+  final api = ref.watch(apiServiceProvider);
+  final response = await api.get('/api/guardian/elderly/$elderlyId/status');
+  if (response.success && response.data != null) {
+    return ElderlyStatus.fromJson(response.data);
+  }
+  return null;
+});
+
+final camerasProvider = FutureProvider<List<Camera>>((ref) async {
+  final api = ref.watch(apiServiceProvider);
+  final response = await api.get('/api/guardian/cameras');
+  if (response.success && response.data != null) {
+    return (response.data['cameras'] as List).map((c) => Camera.fromJson(c)).toList();
+  }
+  return [];
 });
