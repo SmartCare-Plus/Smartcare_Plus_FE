@@ -1,6 +1,5 @@
 /// SMARTCARE+ Guardian Service Provider
 ///
-/// Owner: Devin
 /// Riverpod state management for guardian monitoring features
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
