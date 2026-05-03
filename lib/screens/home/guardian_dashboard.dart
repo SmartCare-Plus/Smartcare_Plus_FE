@@ -1,0 +1,4276 @@
+/// SMARTCARE+ Guardian Dashboard
+///
+/// Dashboard for guardians/caregivers to monitor elderly users,
+/// view alerts, and access real-time monitoring features
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+import '../../core/constants/colors.dart';
+import '../../core/config/routes.dart';
+import '../../core/config/theme.dart';
+import '../../core/services/api_service.dart';
+import '../../widgets/common/glassmorphic_card.dart';
+import '../../widgets/common/theme_toggle_button.dart';
+import '../../widgets/mjpeg_stream.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/connection_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../guardian/activity_log_screen.dart';
+
+class GuardianDashboard extends ConsumerStatefulWidget {
+  const GuardianDashboard({super.key});
+
+  @override
+  ConsumerState<GuardianDashboard> createState() => _GuardianDashboardState();
+}
+
+class _GuardianDashboardState extends ConsumerState<GuardianDashboard> {
+  int _currentIndex = 0;
+  ElderlyInfo? _selectedElderlyForMonitor;
+  int _unacknowledgedAlertCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAlertCount();
+  }
+
+  Future<void> _fetchAlertCount() async {
+    try {
+      final profile = ref.read(userProfileProvider);
+      if (profile?.uid == null) return;
+
+      final apiService = ref.read(apiServiceProvider);
+      final response = await apiService.get<Map<String, dynamic>>(
+        '${ApiConfig.guardian}/alerts/${profile!.uid}',
+        requireAuth: false,
+      );
+
+      if (response.success && response.data != null) {
+        final alerts = (response.data!['alerts'] as List?) ?? [];
+        final unacknowledged =
+            alerts.where((a) => a['resolved'] != true).toList();
+        if (mounted) {
+          setState(() {
+            _unacknowledgedAlertCount = unacknowledged.length;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching alert count: $e');
+    }
+  }
+
+  void _navigateToMonitor([ElderlyInfo? elderly]) {
+    setState(() {
+      _selectedElderlyForMonitor = elderly;
+      _currentIndex = 1;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: palette.backgroundGradient,
+          ),
+        ),
+        child: IndexedStack(
+          index: _currentIndex,
+          children: [
+            _GuardianHomeTab(onNavigateToMonitor: _navigateToMonitor),
+            _MonitorTab(
+              initialElderly: _selectedElderlyForMonitor,
+              onElderlyConsumed: () => _selectedElderlyForMonitor = null,
+            ),
+            const _AlertsTab(),
+            const _GuardianReportsTab(),
+            _ElderlyListTab(onNavigateToMonitor: _navigateToMonitor),
+          ],
+        ),
+      ),
+      bottomNavigationBar: _buildBottomNav(),
+    );
+  }
+
+  Widget _buildBottomNav() {
+    final palette = context.palette;
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.surface.withValues(alpha: 0.95),
+        border: Border(
+          top: BorderSide(color: palette.glassBorder),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.neonPurple.withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildNavItem(0, Icons.dashboard_outlined, Icons.dashboard,
+                  'Dashboard', AppColors.neonPurple),
+              _buildNavItem(1, Icons.videocam_outlined, Icons.videocam,
+                  'Monitor', AppColors.neonCyan),
+              _buildNavItem(2, Icons.notifications_outlined,
+                  Icons.notifications, 'Alerts', AppColors.neonOrange),
+              _buildNavItem(3, Icons.assessment_outlined, Icons.assessment,
+                  'Reports', AppColors.neonGreen),
+              _buildNavItem(4, Icons.people_outlined, Icons.people, 'Elderly',
+                  AppColors.neonPurple),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData icon, IconData activeIcon,
+      String label, Color color) {
+    final isSelected = _currentIndex == index;
+    final isAlertsTab = index == 2; // Alerts tab
+    final badgeCount = isAlertsTab ? _unacknowledgedAlertCount : 0;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() => _currentIndex = index);
+        if (isAlertsTab) _fetchAlertCount(); // Refresh on navigation
+      },
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color:
+              isSelected ? color.withValues(alpha: 0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                    spreadRadius: 0,
+                  ),
+                ]
+              : null,
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isSelected ? activeIcon : icon,
+                  color: isSelected ? color : context.palette.textSecondary,
+                  size: 26,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected ? color : context.palette.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: AppColors.neonRed,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.neonRed.withValues(alpha: 0.4),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      badgeCount > 9 ? '9+' : '$badgeCount',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============= Guardian Home Tab =============
+
+class _GuardianHomeTab extends ConsumerStatefulWidget {
+  final void Function([ElderlyInfo?]) onNavigateToMonitor;
+
+  const _GuardianHomeTab({required this.onNavigateToMonitor});
+
+  @override
+  ConsumerState<_GuardianHomeTab> createState() => _GuardianHomeTabState();
+}
+
+class _GuardianHomeTabState extends ConsumerState<_GuardianHomeTab> {
+  bool _hasLoadedElderly = false;
+  List<Map<String, dynamic>> _recentAlerts = [];
+  int _activeAlertCount = 0;
+  int _criticalCount = 0;
+  bool _isLoadingAlerts = false;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_hasLoadedElderly) {
+        _hasLoadedElderly = true;
+        ref.read(connectionProvider.notifier).loadMyElderly();
+        _fetchAlerts();
+        // Refresh alerts every 30 seconds for real-time updates
+        _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+          if (mounted) _fetchAlerts();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchAlerts() async {
+    if (_isLoadingAlerts) return;
+    setState(() => _isLoadingAlerts = true);
+
+    try {
+      final profile = ref.read(userProfileProvider);
+      final guardianId = profile?.uid ?? '';
+      final apiService = ref.read(apiServiceProvider);
+
+      final response = await apiService.get<Map<String, dynamic>>(
+        '${ApiConfig.guardian}/alerts/$guardianId?limit=5',
+        requireAuth: false,
+      );
+
+      if (response.success && response.data != null) {
+        final alerts =
+            (response.data!['alerts'] as List?)?.cast<Map<String, dynamic>>() ??
+                [];
+
+        setState(() {
+          _recentAlerts = alerts.take(3).toList();
+          _activeAlertCount = response.data!['active_count'] ?? 0;
+          _criticalCount = alerts
+              .where((a) =>
+                  a['severity'] == 'critical' && !(a['resolved'] ?? false))
+              .length;
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch alerts: $e');
+    } finally {
+      if (mounted) setState(() => _isLoadingAlerts = false);
+    }
+  }
+
+  /// Format timestamp to human-readable time ago
+  String _formatTimeAgo(String? timestamp) {
+    if (timestamp == null) return 'Just now';
+    try {
+      final date = DateTime.parse(timestamp);
+      final now = DateTime.now();
+      final difference = now.difference(date);
+
+      if (difference.inMinutes < 1) return 'Just now';
+      if (difference.inMinutes < 60) return '${difference.inMinutes} min ago';
+      if (difference.inHours < 24) {
+        return '${difference.inHours} hour${difference.inHours == 1 ? "" : "s"} ago';
+      }
+      if (difference.inDays < 7) {
+        return '${difference.inDays} day${difference.inDays == 1 ? "" : "s"} ago';
+      }
+      return '${(difference.inDays / 7).floor()} week${(difference.inDays / 7).floor() == 1 ? "" : "s"} ago';
+    } catch (e) {
+      return 'Recently';
+    }
+  }
+
+  /// Get activity info based on video ID
+  Map<String, String> _getActivityFromVideo(String videoId) {
+    if (videoId.contains('walking')) {
+      return {'activity': 'Walking', 'status': 'Active', 'risk': 'Low'};
+    } else if (videoId.contains('sitting') || videoId.contains('resting')) {
+      return {'activity': 'Resting', 'status': 'Resting', 'risk': 'Low'};
+    } else if (videoId.contains('standing')) {
+      return {'activity': 'Standing', 'status': 'Active', 'risk': 'Low'};
+    } else if (videoId.contains('lying')) {
+      return {'activity': 'Lying Down', 'status': 'Resting', 'risk': 'Medium'};
+    } else if (videoId.contains('fall')) {
+      return {'activity': 'Alert!', 'status': 'Alert', 'risk': 'High'};
+    } else if (videoId.contains('gait')) {
+      return {
+        'activity': 'Walking',
+        'status': 'Active',
+        'risk': videoId.contains('abnormal') ? 'Medium' : 'Low'
+      };
+    }
+    return {'activity': 'Active', 'status': 'Online', 'risk': 'Low'};
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = ref.watch(userProfileProvider);
+    final connectionState = ref.watch(connectionProvider);
+    final elderlyList = connectionState.myElderly;
+    final fullName = profile?.name ?? 'Guardian';
+    final firstName = fullName.split(' ').first;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Guardian Dashboard',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: context.palette.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Hello, $firstName',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: context.palette.textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    // Connections Button
+                    GestureDetector(
+                      onTap: () =>
+                          Navigator.pushNamed(context, AppRoutes.connections),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: context.palette.surfaceLight,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.link,
+                            color: AppColors.neonCyan, size: 22),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const ThemeToggleButton(),
+                    const SizedBox(width: 10),
+                    // Logout Button
+                    GestureDetector(
+                      onTap: () => _showLogoutDialog(context, ref),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: context.palette.surfaceLight,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.logout,
+                            color: AppColors.neonRed, size: 22),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _buildProfileAvatar(context),
+                  ],
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Alert Summary Card
+            _buildAlertSummaryCard(),
+
+            const SizedBox(height: 20),
+
+            // Monitored Elderly Grid
+            Text(
+              'Monitoring',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: context.palette.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            if (elderlyList.isEmpty)
+              GlassmorphicCard(
+                glowColor: AppColors.neonCyan,
+                glowIntensity: 0.1,
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: context.palette.textSecondary
+                            .withValues(alpha: 0.5)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'No elderly connected. Add connections to start monitoring.',
+                        style: TextStyle(
+                            color: context.palette.textSecondary, fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: elderlyList.take(2).map((elderly) {
+                  final activityInfo =
+                      _getActivityFromVideo(elderly.assignedVideoId);
+                  return SizedBox(
+                    width: (MediaQuery.of(context).size.width - 52) / 2,
+                    child: _buildElderlyStatusCard(
+                      elderly: elderly,
+                      status: activityInfo['status']!,
+                      activity: activityInfo['activity']!,
+                      riskLevel: activityInfo['risk']!,
+                      color: activityInfo['risk'] == 'High'
+                          ? AppColors.neonRed
+                          : activityInfo['risk'] == 'Medium'
+                              ? AppColors.neonOrange
+                              : AppColors.neonGreen,
+                    ),
+                  );
+                }).toList(),
+              ),
+
+            const SizedBox(height: 24),
+
+            // Recent Alerts
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Recent Alerts',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    // Navigate to Alerts tab
+                    final dashboardState = context
+                        .findAncestorStateOfType<_GuardianDashboardState>();
+                    dashboardState
+                        ?.setState(() => dashboardState._currentIndex = 2);
+                  },
+                  child: const Text('View All',
+                      style: TextStyle(color: AppColors.neonCyan)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            if (_isLoadingAlerts)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(color: AppColors.neonCyan),
+                ),
+              )
+            else if (_recentAlerts.isEmpty)
+              GlassmorphicCard(
+                glowColor: AppColors.neonGreen,
+                glowIntensity: 0.1,
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle,
+                        color: AppColors.neonGreen.withValues(alpha: 0.7)),
+                    const SizedBox(width: 12),
+                    Text(
+                      'No recent alerts',
+                      style: TextStyle(
+                          color: context.palette.textSecondary, fontSize: 14),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ..._recentAlerts.map((alert) {
+                final alertType = alert['alert_type'] ?? 'unknown';
+                final elderlyName = alert['elderly_name'] ?? 'Unknown';
+                final createdAt = alert['created_at'] as String?;
+                final timeAgo = _formatTimeAgo(createdAt);
+
+                IconData icon;
+                Color color;
+                String displayType;
+                String priority;
+
+                switch (alertType) {
+                  case 'fall':
+                    icon = Icons.warning;
+                    color = AppColors.neonRed;
+                    displayType = 'Fall Detected';
+                    priority = 'Critical';
+                    break;
+                  case 'gait':
+                    icon = Icons.directions_walk;
+                    color = AppColors.neonOrange;
+                    displayType = 'Abnormal Gait';
+                    priority = 'Warning';
+                    break;
+                  case 'inactivity':
+                    icon = Icons.timer_off;
+                    color = AppColors.neonOrange;
+                    displayType = 'Inactivity Warning';
+                    priority = 'Warning';
+                    break;
+                  default:
+                    icon = Icons.notifications;
+                    color = AppColors.neonCyan;
+                    displayType = 'Alert';
+                    priority = 'Info';
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildAlertCard(
+                    type: displayType,
+                    elderlyName: elderlyName,
+                    time: timeAgo,
+                    priority: priority,
+                    icon: icon,
+                    color: color,
+                  ),
+                );
+              }),
+
+            const SizedBox(height: 24),
+
+            // Quick Actions
+            Text(
+              'Quick Actions',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: context.palette.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _buildQuickAction(
+                    icon: Icons.videocam,
+                    label: 'Live\nMonitor',
+                    color: AppColors.neonCyan,
+                    onTap: widget.onNavigateToMonitor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildQuickAction(
+                    icon: Icons.history,
+                    label: 'Activity\nLog',
+                    color: AppColors.neonGreen,
+                    onTap: () {
+                      final elderly = ref.read(connectionProvider).myElderly;
+                      if (elderly.isNotEmpty) {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ActivityLogScreen(
+                                elderlyId: elderly.first.id,
+                                elderlyName: elderly.first.name,
+                              ),
+                            ));
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('No elderly connected'),
+                              behavior: SnackBarBehavior.floating),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileAvatar(BuildContext context) {
+    return GestureDetector(
+      onTap: () => Navigator.pushNamed(context, Routes.guardianProfile),
+      child: Container(
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.neonPurple, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.neonPurple.withValues(alpha: 0.3),
+              blurRadius: 10,
+            ),
+          ],
+        ),
+        child: CircleAvatar(
+          backgroundColor: context.palette.surface,
+          child: const Icon(Icons.person, color: AppColors.neonPurple),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlertSummaryCard() {
+    if (_activeAlertCount == 0) {
+      return GlassmorphicCard(
+        glowColor: AppColors.neonGreen,
+        glowIntensity: 0.1,
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.neonGreen.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.check_circle,
+                  color: AppColors.neonGreen, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'No Active Alerts',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: context.palette.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'All elderly are safe',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.palette.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final otherCount = _activeAlertCount - _criticalCount;
+    final subtitle = _criticalCount > 0
+        ? '$_criticalCount critical${otherCount > 0 ? ", $otherCount require attention" : ""}'
+        : '$otherCount require attention';
+
+    return GestureDetector(
+      onTap: () {
+        // Navigate to Alerts tab (index 2)
+        final dashboardState =
+            context.findAncestorStateOfType<_GuardianDashboardState>();
+        dashboardState?.setState(() => dashboardState._currentIndex = 2);
+      },
+      child: GlassmorphicCard(
+        glowColor: AppColors.neonRed,
+        glowIntensity: 0.2,
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.neonRed.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.notifications_active,
+                  color: AppColors.neonRed, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$_activeAlertCount Active Alert${_activeAlertCount == 1 ? "" : "s"}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: context.palette.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.palette.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.neonRed,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.neonRed.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: const Text(
+                'View',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildElderlyStatusCard({
+    required ElderlyInfo elderly,
+    required String status,
+    required String activity,
+    required String riskLevel,
+    required Color color,
+  }) {
+    return GlassmorphicCard(
+      glowColor: color,
+      glowIntensity: 0.15,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.elderly, color: color, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      elderly.name,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: context.palette.textPrimary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          status,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Activity',
+                    style: TextStyle(
+                        fontSize: 10, color: context.palette.textSecondary),
+                  ),
+                  Text(
+                    activity,
+                    style: TextStyle(
+                        fontSize: 13, color: context.palette.textPrimary),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Risk',
+                    style: TextStyle(
+                        fontSize: 10, color: context.palette.textSecondary),
+                  ),
+                  Text(
+                    riskLevel,
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: color,
+                        fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => widget.onNavigateToMonitor(elderly),
+              icon: Icon(Icons.videocam, size: 16, color: color),
+              label:
+                  Text('Watch', style: TextStyle(color: color, fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: color.withValues(alpha: 0.5)),
+                padding: const EdgeInsets.symmetric(vertical: 6),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: context.palette.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Logout',
+            style: TextStyle(color: context.palette.textPrimary)),
+        content: Text('Are you sure you want to logout?',
+            style: TextStyle(color: context.palette.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel',
+                style: TextStyle(color: context.palette.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await ref.read(authProvider.notifier).signOut();
+              if (context.mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  AppRoutes.login,
+                  (route) => false,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.neonRed),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAlertCard({
+    required String type,
+    required String elderlyName,
+    required String time,
+    required String priority,
+    required IconData icon,
+    required Color color,
+  }) {
+    return GlassmorphicCard(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  type,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                Text(
+                  '$elderlyName • $time',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.palette.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              priority,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickAction({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: GlassmorphicCard(
+        glowColor: color,
+        glowIntensity: 0.1,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 26),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: context.palette.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============= Monitor Tab =============
+
+class _MonitorTab extends ConsumerStatefulWidget {
+  final ElderlyInfo? initialElderly;
+  final VoidCallback? onElderlyConsumed;
+
+  const _MonitorTab({this.initialElderly, this.onElderlyConsumed});
+
+  @override
+  ConsumerState<_MonitorTab> createState() => _MonitorTabState();
+}
+
+class _MonitorTabState extends ConsumerState<_MonitorTab> {
+  bool _isStreaming = false;
+  bool _isLoading = false;
+  ElderlyInfo? _selectedElderly;
+  String _streamUrl = '';
+  String _currentActivity = 'N/A';
+  String _confidence = 'N/A';
+  String _fallRisk = 'N/A';
+  Timer? _timestampTimer;
+  Timer? _analysisTimer;
+  String _currentTimestamp = '';
+  bool _hasLoadedElderly = false;
+  ElderlyInfo?
+      _consumedElderly; // Track consumed elderly to prevent re-consuming
+  String _currentVideoId = '';
+
+  // Hybrid detection state
+  bool _isAnalyzing = false;
+  bool _fallDetected = false;
+  String _detectionSource = '';
+  Map<String, double> _layerScores = {};
+
+  // Activity & gait detection state
+  String _dlActivity = 'unknown';
+  bool _gaitAbnormal = false;
+  double _inactivitySeconds = 0;
+  bool _inactivityAlert = false;
+  bool _fallAlertShown = false;
+  bool _gaitAlertShown = false;
+  bool _inactivityAlertShown = false;
+
+  // Frame capture for live streaming detection
+  Uint8List? _lastCapturedFrame;
+  DateTime? _lastFrameSentAt;
+  int _framesSent = 0;
+  bool _bufferReady = false;
+
+  String _getVideoUrl(String videoId) {
+    // Use /video/live endpoint which respects backend video_config.json
+    // If source_type=camera, streams from webcam/USB camera
+    // If source_type=simulated, streams the configured video
+    return '${ApiConfig.streamBaseUrl}${ApiConfig.guardian}/video/live';
+  }
+
+  /// Handle new frame from MJPEG stream
+  void _onFrameReceived(Uint8List frameBytes) {
+    _lastCapturedFrame = frameBytes;
+  }
+
+  /// Send a frame to the backend for live detection
+  Future<void> _sendFrameForDetection() async {
+    if (_currentVideoId.isEmpty || _lastCapturedFrame == null) return;
+    if (_isAnalyzing) return; // Don't pile up requests
+
+    // Throttle: send max 5 frames per second
+    final now = DateTime.now();
+    if (_lastFrameSentAt != null &&
+        now.difference(_lastFrameSentAt!).inMilliseconds < 150) {
+      return;
+    }
+    _lastFrameSentAt = now;
+
+    setState(() {
+      _isAnalyzing = true;
+    });
+
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      final sessionId = _currentVideoId; // Use video ID as session ID
+
+      // Encode frame as base64
+      final frameBase64 = base64Encode(_lastCapturedFrame!);
+
+      // Send to streaming detection endpoint
+      final response = await apiService
+          .post<Map<String, dynamic>>(
+            '${ApiConfig.guardian}/stream/$sessionId/frame',
+            body: {
+              'frame_base64': frameBase64,
+              'elderly_id': _selectedElderly?.id,
+              'elderly_name': _selectedElderly?.name,
+              'timestamp': now.millisecondsSinceEpoch / 1000,
+            },
+            requireAuth: false,
+          )
+          .timeout(const Duration(seconds: 5));
+
+      if (response.success && response.data != null) {
+        final data = response.data!;
+
+        final detection = data['detection'] as Map<String, dynamic>?;
+        final scores = data['scores'] as Map<String, dynamic>?;
+
+        setState(() {
+          _framesSent = data['frame_number'] ?? _framesSent + 1;
+          _bufferReady = data['buffer_ready'] ?? false;
+
+          if (detection != null) {
+            _fallDetected = detection['fall_detected'] ?? false;
+            _confidence =
+                '${((detection['confidence'] ?? 0.0) * 100).toInt()}%';
+            _detectionSource = detection['detection_source'] ?? 'none';
+          }
+
+          if (scores != null) {
+            _layerScores = {
+              'skeleton': (scores['skeleton'] ?? 0.0).toDouble(),
+              'motion': (scores['motion'] ?? 0.0).toDouble(),
+              'deep_learning': (scores['deep_learning'] ?? 0.0).toDouble(),
+            };
+          }
+
+          // Parse activity & gait data
+          final activity = data['activity'] as Map<String, dynamic>?;
+          if (activity != null) {
+            _dlActivity = activity['dl_activity'] ?? 'unknown';
+            _gaitAbnormal = activity['gait_abnormal'] ?? false;
+          }
+
+          // Parse inactivity data
+          final inactivity = data['inactivity'] as Map<String, dynamic>?;
+          if (inactivity != null) {
+            _inactivitySeconds = (inactivity['seconds'] ?? 0.0).toDouble();
+            _inactivityAlert = inactivity['alert'] ?? false;
+          }
+
+          // Update activity based on detection
+          if (_fallDetected) {
+            _currentActivity = 'FALL DETECTED';
+            _fallRisk = 'Critical';
+          } else if (_gaitAbnormal) {
+            _currentActivity = 'Abnormal Gait';
+            _fallRisk = 'Medium';
+          } else if (_inactivityAlert) {
+            _currentActivity = 'Inactive';
+            _fallRisk = 'Medium';
+          } else if (_bufferReady) {
+            // Map DL activities to user-friendly labels
+            if (_dlActivity == 'good_gait' || _dlActivity == 'adl') {
+              _currentActivity = 'Normal';
+            } else if (_dlActivity == 'tug') {
+              _currentActivity = 'Walking';
+            } else if (_dlActivity == 'arthritis_gait') {
+              _currentActivity = 'Abnormal Gait';
+            } else {
+              _currentActivity = 'Normal';
+            }
+            _fallRisk = 'Low';
+          } else {
+            _currentActivity = 'Buffering...';
+            _fallRisk = 'Analyzing';
+          }
+        });
+
+        // Show alert if fall detected (once per session)
+        if (_fallDetected && !_fallAlertShown && mounted) {
+          _fallAlertShown = true;
+          _showFallAlert();
+        }
+
+        // Show gait alert (once per session)
+        if (_gaitAbnormal && !_gaitAlertShown && mounted) {
+          _gaitAlertShown = true;
+          _showGaitAlert();
+        }
+
+        // Show inactivity alert (once per session)
+        if (_inactivityAlert && !_inactivityAlertShown && mounted) {
+          _inactivityAlertShown = true;
+          _showInactivityAlert();
+        }
+      }
+    } catch (e) {
+      debugPrint('Stream detection error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+      }
+    }
+  }
+
+  /// Start streaming session and periodic frame sending
+  Future<void> _startAnalysis() async {
+    if (_currentVideoId.isEmpty) return;
+
+    // Reset state
+    _framesSent = 0;
+    _bufferReady = false;
+    _lastCapturedFrame = null;
+    _lastFrameSentAt = null;
+    _fallAlertShown = false;
+    _gaitAlertShown = false;
+    _inactivityAlertShown = false;
+
+    // Start session on backend
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      await apiService.post<Map<String, dynamic>>(
+        '${ApiConfig.guardian}/stream/$_currentVideoId/start',
+        body: {'elderly_id': _selectedElderly?.id},
+        requireAuth: false,
+      );
+      debugPrint('🎥 Stream session started: $_currentVideoId');
+    } catch (e) {
+      debugPrint('Failed to start stream session: $e');
+    }
+
+    // Start periodic frame sending (5 fps for ~6 second detection)
+    _analysisTimer?.cancel();
+    _analysisTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (_isStreaming && mounted && _lastCapturedFrame != null) {
+        _sendFrameForDetection();
+      }
+    });
+  }
+
+  /// Stop analysis and clean up session
+  Future<void> _stopAnalysis() async {
+    _analysisTimer?.cancel();
+    _analysisTimer = null;
+
+    // Stop session on backend
+    if (_currentVideoId.isNotEmpty) {
+      try {
+        final apiService = ref.read(apiServiceProvider);
+        await apiService.post<Map<String, dynamic>>(
+          '${ApiConfig.guardian}/stream/$_currentVideoId/stop',
+          requireAuth: false,
+        );
+        debugPrint('🛑 Stream session stopped: $_currentVideoId');
+      } catch (e) {
+        debugPrint('Failed to stop stream session: $e');
+      }
+    }
+
+    // Reset state
+    _lastCapturedFrame = null;
+    _lastFrameSentAt = null;
+  }
+
+  /// Show fall alert dialog
+  void _showFallAlert() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: context.palette.surface,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.neonRed.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.warning, color: AppColors.neonRed),
+            ),
+            const SizedBox(width: 12),
+            const Text('Fall Detected!',
+                style: TextStyle(color: AppColors.neonRed)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${_selectedElderly?.name ?? "Elderly"} may have fallen.',
+              style: TextStyle(color: context.palette.textPrimary),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: context.palette.surfaceLight,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Confidence: $_confidence',
+                      style: TextStyle(
+                          color: context.palette.textSecondary, fontSize: 12)),
+                  Text('Detection: $_detectionSource',
+                      style: TextStyle(
+                          color: context.palette.textSecondary, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Text('Layer Scores:',
+                      style: TextStyle(
+                          color: context.palette.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
+                  if (_layerScores.isNotEmpty) ...[
+                    _buildScoreBar('Skeleton', _layerScores['skeleton'] ?? 0,
+                        AppColors.neonCyan),
+                    _buildScoreBar('Motion', _layerScores['motion'] ?? 0,
+                        AppColors.neonGreen),
+                    _buildScoreBar(
+                        'Deep Learning',
+                        _layerScores['deep_learning'] ?? 0,
+                        AppColors.neonPurple),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Dismiss',
+                style: TextStyle(color: context.palette.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showEmergencyContacts();
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.neonRed),
+            child: const Text('Call Emergency'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show emergency contacts dialog with call options
+  Future<void> _showEmergencyContacts() async {
+    if (_selectedElderly == null) return;
+
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      final response = await apiService.get<Map<String, dynamic>>(
+        '${ApiConfig.guardian}/emergency-contacts/${_selectedElderly!.id}',
+        requireAuth: false,
+      );
+
+      if (!response.success || response.data == null) {
+        // Fallback to 911
+        final Uri phoneUri = Uri(scheme: 'tel', path: '911');
+        if (await canLaunchUrl(phoneUri)) {
+          await launchUrl(phoneUri);
+        }
+        return;
+      }
+
+      final contacts = (response.data!['contacts'] as List?) ?? [];
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: context.palette.surface,
+          title: Row(
+            children: [
+              const Icon(Icons.phone, color: AppColors.neonCyan),
+              const SizedBox(width: 12),
+              Text('Emergency Contacts',
+                  style: TextStyle(color: context.palette.textPrimary)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: contacts.map<Widget>((contact) {
+              final name = contact['name'] ?? 'Unknown';
+              final phone = contact['phone'] ?? '';
+              final role = contact['role'] ?? '';
+              final isEmergency = role == 'emergency';
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: GlassmorphicCard(
+                  padding: const EdgeInsets.all(12),
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isEmergency
+                            ? AppColors.neonRed.withValues(alpha: 0.2)
+                            : AppColors.neonCyan.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        isEmergency ? Icons.local_hospital : Icons.person,
+                        color: isEmergency
+                            ? AppColors.neonRed
+                            : AppColors.neonCyan,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(name,
+                        style: TextStyle(
+                            color: context.palette.textPrimary, fontSize: 14)),
+                    subtitle: Text(
+                      phone,
+                      style: TextStyle(
+                          color: context.palette.textSecondary, fontSize: 12),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.phone, color: AppColors.neonGreen),
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        final Uri phoneUri = Uri(scheme: 'tel', path: phone);
+                        if (await canLaunchUrl(phoneUri)) {
+                          await launchUrl(phoneUri);
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel',
+                  style: TextStyle(color: context.palette.textSecondary)),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error fetching emergency contacts: $e');
+      // Fallback to 911
+      final Uri phoneUri = Uri(scheme: 'tel', path: '911');
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      }
+    }
+  }
+
+  /// Show gait abnormality alert
+  void _showGaitAlert() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: context.palette.surface,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.neonOrange.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.directions_walk,
+                  color: AppColors.neonOrange),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text('Abnormal Gait Detected',
+                  style: TextStyle(color: AppColors.neonOrange, fontSize: 18)),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${_selectedElderly?.name ?? "Elderly"} is showing signs of arthritic or abnormal gait pattern.',
+              style: TextStyle(color: context.palette.textPrimary),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: context.palette.surfaceLight,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'This may indicate joint pain, arthritis, or mobility issues. Consider scheduling a medical check-up.',
+                style: TextStyle(
+                    color: context.palette.textSecondary, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Dismiss',
+                style: TextStyle(color: context.palette.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: AppColors.neonOrange),
+            child: const Text('Acknowledge'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show inactivity alert
+  void _showInactivityAlert() {
+    final minutes = (_inactivitySeconds / 60).round();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: context.palette.surface,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.neonOrange.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.timer_off, color: AppColors.neonOrange),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text('Inactivity Alert',
+                  style: TextStyle(color: AppColors.neonOrange, fontSize: 18)),
+            ),
+          ],
+        ),
+        content: Text(
+          '${_selectedElderly?.name ?? "Elderly"} has been inactive for approximately $minutes minutes. Please check on them.',
+          style: TextStyle(color: context.palette.textPrimary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Dismiss',
+                style: TextStyle(color: context.palette.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: AppColors.neonOrange),
+            child: const Text('Acknowledge'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreBar(String label, double score, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          SizedBox(
+              width: 90,
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 10, color: context.palette.textSecondary))),
+          Expanded(
+            child: LinearProgressIndicator(
+              value: score,
+              backgroundColor: context.palette.surface,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text('${(score * 100).toInt()}%',
+              style: TextStyle(
+                  fontSize: 10, color: color, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _updateTimestamp();
+    _timestampTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _updateTimestamp());
+    // Load connected elderly
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_hasLoadedElderly) {
+        _hasLoadedElderly = true;
+        ref.read(connectionProvider.notifier).loadMyElderly();
+      }
+      // Auto-start watching if initial elderly is passed
+      _checkForInitialElderly();
+    });
+  }
+
+  void _checkForInitialElderly() {
+    if (widget.initialElderly != null &&
+        widget.initialElderly != _consumedElderly) {
+      _consumedElderly = widget.initialElderly;
+      _startWatching(widget.initialElderly!);
+      widget.onElderlyConsumed?.call();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MonitorTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Check if new initial elderly was passed
+    _checkForInitialElderly();
+  }
+
+  void _updateTimestamp() {
+    final now = DateTime.now();
+    setState(() {
+      _currentTimestamp =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    });
+  }
+
+  @override
+  void dispose() {
+    _timestampTimer?.cancel();
+    _analysisTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startWatching(ElderlyInfo elderly) {
+    final videoId = elderly.assignedVideoId;
+    final videoUrl = _getVideoUrl(videoId);
+
+    debugPrint('🎬 Guardian Monitor: Starting stream for ${elderly.name}');
+    debugPrint('🎬 Video ID: $videoId');
+    debugPrint('🎬 Stream URL: $videoUrl');
+
+    setState(() {
+      _selectedElderly = elderly;
+      _currentVideoId = videoId;
+      _streamUrl = videoUrl;
+      _isStreaming = true;
+      _isLoading = false;
+      _currentActivity = 'Analyzing...';
+      _confidence = '...';
+      _fallRisk = '...';
+      _fallDetected = false;
+      _layerScores = {};
+    });
+
+    // Start hybrid ML analysis
+    _startAnalysis();
+  }
+
+  void _stopWatching() {
+    _stopAnalysis();
+    setState(() {
+      _isStreaming = false;
+      _streamUrl = '';
+      _selectedElderly = null;
+      _currentVideoId = '';
+      _currentActivity = 'N/A';
+      _confidence = 'N/A';
+      _fallRisk = 'N/A';
+      _fallDetected = false;
+      _layerScores = {};
+      _detectionSource = '';
+    });
+  }
+
+  void _showFullscreenVideo(BuildContext context) {
+    if (_streamUrl.isEmpty || _selectedElderly == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => _FullscreenVideoScreen(
+          streamUrl: _streamUrl,
+          elderlyName: _selectedElderly!.name,
+          timestamp: _currentTimestamp,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final connectionState = ref.watch(connectionProvider);
+    final elderlyList = connectionState.myElderly;
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Live Monitor',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _selectedElderly != null
+                      ? 'Watching ${_selectedElderly!.name}'
+                      : 'Real-time elderly monitoring',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: context.palette.textSecondary,
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Live Feed Container
+                Container(
+                  height: 250,
+                  decoration: BoxDecoration(
+                    color: context.palette.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _isStreaming
+                          ? AppColors.neonGreen
+                          : context.palette.glassBorder,
+                      width: _isStreaming ? 2 : 1,
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // Video or Placeholder
+                        if (_isLoading)
+                          const Center(
+                            child: CircularProgressIndicator(
+                                color: AppColors.neonCyan),
+                          )
+                        else if (_isStreaming && _streamUrl.isNotEmpty)
+                          MjpegStream(
+                            streamUrl: _streamUrl,
+                            isLive: true,
+                            fit: BoxFit.cover,
+                            loadingWidget: const Center(
+                              child: CircularProgressIndicator(
+                                  color: AppColors.neonCyan),
+                            ),
+                            onError: (error) {
+                              debugPrint('❌ Guardian Monitor Error: $error');
+                            },
+                            onFrame: _onFrameReceived,
+                          )
+                        else
+                          Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.videocam_off,
+                                    size: 48,
+                                    color: context.palette.textSecondary
+                                        .withValues(alpha: 0.5)),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Select an elderly to start monitoring',
+                                  style: TextStyle(
+                                      color: context.palette.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        // Live/Offline indicator
+                        Positioned(
+                          top: 12,
+                          left: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: _isStreaming
+                                  ? AppColors.neonGreen.withValues(alpha: 0.2)
+                                  : AppColors.neonRed.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.circle,
+                                  color: _isStreaming
+                                      ? AppColors.neonGreen
+                                      : AppColors.neonRed,
+                                  size: 8,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _isStreaming ? 'LIVE' : 'OFFLINE',
+                                  style: TextStyle(
+                                    color: _isStreaming
+                                        ? AppColors.neonGreen
+                                        : AppColors.neonRed,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Stop and Fullscreen buttons when playing
+                        if (_isStreaming)
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: () => _showFullscreenVideo(context),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.fullscreen,
+                                        color: Colors.white, size: 20),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: _stopWatching,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.close,
+                                        color: Colors.white, size: 20),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        // Elderly name overlay when playing
+                        if (_isStreaming && _selectedElderly != null)
+                          Positioned(
+                            bottom: 12,
+                            left: 12,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _selectedElderly!.name,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ),
+
+                        // Live timestamp overlay
+                        if (_isStreaming)
+                          Positioned(
+                            bottom: 12,
+                            right: 12,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.access_time,
+                                      color: AppColors.neonCyan, size: 14),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _currentTimestamp,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Activity Overlay Info
+                GlassmorphicCard(
+                  glowColor: _fallDetected ? AppColors.neonRed : null,
+                  glowIntensity: _fallDetected ? 0.3 : 0,
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildOverlayInfo(
+                            'Activity',
+                            _currentActivity,
+                            _fallDetected
+                                ? Icons.warning
+                                : Icons.directions_walk,
+                            _fallDetected
+                                ? AppColors.neonRed
+                                : AppColors.neonCyan,
+                          ),
+                          _buildOverlayInfo('Confidence', _confidence,
+                              Icons.verified, AppColors.neonGreen),
+                          _buildOverlayInfo(
+                            'Fall Risk',
+                            _fallRisk,
+                            Icons.health_and_safety,
+                            _fallRisk == 'Critical'
+                                ? AppColors.neonRed
+                                : _fallRisk == 'Medium'
+                                    ? AppColors.neonOrange
+                                    : AppColors.neonGreen,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Layer scores (show when available)
+                if (_layerScores.isNotEmpty && _isStreaming) ...[
+                  const SizedBox(height: 8),
+                  GlassmorphicCard(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.psychology,
+                                size: 14, color: AppColors.neonPurple),
+                            const SizedBox(width: 6),
+                            Text(
+                              '3-Layer Hybrid Detection',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: context.palette.textPrimary),
+                            ),
+                            const Spacer(),
+                            if (_detectionSource.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.neonPurple
+                                      .withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  _detectionSource,
+                                  style: const TextStyle(
+                                      fontSize: 9, color: AppColors.neonPurple),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _buildLayerScoreRow('Skeleton (Pose)',
+                            _layerScores['skeleton'] ?? 0, AppColors.neonCyan),
+                        _buildLayerScoreRow('Motion (Frame)',
+                            _layerScores['motion'] ?? 0, AppColors.neonGreen),
+                        _buildLayerScoreRow(
+                            'Deep Learning',
+                            _layerScores['deep_learning'] ?? 0,
+                            AppColors.neonPurple),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Elderly Selection
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              decoration: BoxDecoration(
+                color: context.palette.surface,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Select Elderly',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: context.palette.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: connectionState.isLoading
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                                color: AppColors.neonCyan))
+                        : elderlyList.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.people_outline,
+                                        size: 48,
+                                        color: context.palette.textSecondary
+                                            .withValues(alpha: 0.5)),
+                                    const SizedBox(height: 12),
+                                    Text('No elderly connected',
+                                        style: TextStyle(
+                                            color:
+                                                context.palette.textSecondary)),
+                                    const SizedBox(height: 8),
+                                    TextButton(
+                                      onPressed: () => Navigator.pushNamed(
+                                          context, AppRoutes.connections),
+                                      child: const Text('Add Connection',
+                                          style: TextStyle(
+                                              color: AppColors.neonCyan)),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: elderlyList.length,
+                                itemBuilder: (context, index) {
+                                  final elderly = elderlyList[index];
+                                  return _buildElderlySelectCard(elderly);
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverlayInfo(
+      String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 22),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: context.palette.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLayerScoreRow(String label, double score, Color color) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 10, color: context.palette.textSecondary)),
+          ),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: score,
+                minHeight: 6,
+                backgroundColor: context.palette.surface,
+                valueColor:
+                    AlwaysStoppedAnimation<Color>(color.withValues(alpha: 0.8)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 35,
+            child: Text(
+              '${(score * 100).toInt()}%',
+              style: TextStyle(
+                  fontSize: 10, color: color, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.right,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildElderlySelectCard(ElderlyInfo elderly) {
+    final isSelected = _selectedElderly?.id == elderly.id && _isStreaming;
+    final lastActive = _getTimeAgo(elderly.connectedAt);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: GlassmorphicCard(
+        glowColor: isSelected ? AppColors.neonGreen : null,
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Stack(
+              children: [
+                Container(
+                  width: 45,
+                  height: 45,
+                  decoration: BoxDecoration(
+                    color: context.palette.surfaceLight,
+                    shape: BoxShape.circle,
+                  ),
+                  child:
+                      Icon(Icons.elderly, color: context.palette.textSecondary),
+                ),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: AppColors.neonGreen,
+                      shape: BoxShape.circle,
+                      border:
+                          Border.all(color: context.palette.surface, width: 2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    elderly.name,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: context.palette.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    'Connected $lastActive',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.palette.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () => _startWatching(elderly),
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    isSelected ? AppColors.neonGreen : AppColors.neonCyan,
+                foregroundColor: Colors.black,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              ),
+              child: Text(
+                isSelected ? 'Watching' : 'Watch',
+                style:
+                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getTimeAgo(String dateStr) {
+    try {
+      final date = DateTime.parse(dateStr);
+      final diff = DateTime.now().difference(date);
+      if (diff.inDays > 0) return '${diff.inDays}d ago';
+      if (diff.inHours > 0) return '${diff.inHours}h ago';
+      if (diff.inMinutes > 0) return '${diff.inMinutes}m ago';
+      return 'just now';
+    } catch (_) {
+      return 'recently';
+    }
+  }
+}
+
+// ============= Alerts Tab =============
+
+class _AlertsTab extends ConsumerStatefulWidget {
+  const _AlertsTab();
+
+  @override
+  ConsumerState<_AlertsTab> createState() => _AlertsTabState();
+}
+
+class _AlertsTabState extends ConsumerState<_AlertsTab> {
+  List<Map<String, dynamic>> _alerts = [];
+  bool _isLoading = true;
+  String _selectedFilter = 'All';
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAlerts();
+  }
+
+  Future<void> _fetchAlerts() async {
+    setState(() => _isLoading = true);
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      final profile = ref.read(authProvider).profile;
+      final guardianId = profile?.uid ?? 'unknown';
+
+      final response = await apiService.get<Map<String, dynamic>>(
+        '${ApiConfig.guardian}/alerts/$guardianId',
+        requireAuth: false,
+      );
+
+      if (response.success && response.data != null) {
+        final data = response.data!;
+        final alertsList = data['alerts'] as List<dynamic>? ?? [];
+        setState(() {
+          _alerts = alertsList
+              .map((a) => Map<String, dynamic>.from(a as Map))
+              .toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch alerts: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredAlerts {
+    if (_selectedFilter == 'All') return _alerts;
+    if (_selectedFilter == 'Critical') {
+      return _alerts.where((a) => a['severity'] == 'critical').toList();
+    }
+    if (_selectedFilter == 'Falls') {
+      return _alerts.where((a) => a['type'] == 'fall').toList();
+    }
+    return _alerts;
+  }
+
+  /// Show emergency contacts for a specific elderly
+  Future<void> _showEmergencyContactsForElderly(String? elderlyId) async {
+    if (elderlyId == null || elderlyId.isEmpty) {
+      final Uri phoneUri = Uri(scheme: 'tel', path: '911');
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      }
+      return;
+    }
+
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      final response = await apiService.get<Map<String, dynamic>>(
+        '${ApiConfig.guardian}/emergency-contacts/$elderlyId',
+        requireAuth: false,
+      );
+
+      if (!response.success || response.data == null) {
+        final Uri phoneUri = Uri(scheme: 'tel', path: '911');
+        if (await canLaunchUrl(phoneUri)) {
+          await launchUrl(phoneUri);
+        }
+        return;
+      }
+
+      final contacts = (response.data!['contacts'] as List?) ?? [];
+
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: context.palette.surface,
+          title: Row(
+            children: [
+              const Icon(Icons.phone, color: AppColors.neonCyan),
+              const SizedBox(width: 12),
+              Text('Emergency Contacts',
+                  style: TextStyle(color: context.palette.textPrimary)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: contacts.map<Widget>((contact) {
+              final name = contact['name'] ?? 'Unknown';
+              final phone = contact['phone'] ?? '';
+              final role = contact['role'] ?? '';
+              final isEmergency = role == 'emergency';
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: GlassmorphicCard(
+                  padding: const EdgeInsets.all(12),
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isEmergency
+                            ? AppColors.neonRed.withValues(alpha: 0.2)
+                            : AppColors.neonCyan.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        isEmergency ? Icons.local_hospital : Icons.person,
+                        color: isEmergency
+                            ? AppColors.neonRed
+                            : AppColors.neonCyan,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(name,
+                        style: TextStyle(
+                            color: context.palette.textPrimary, fontSize: 14)),
+                    subtitle: Text(phone,
+                        style: TextStyle(
+                            color: context.palette.textSecondary,
+                            fontSize: 12)),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.phone, color: AppColors.neonGreen),
+                      onPressed: () async {
+                        Navigator.pop(dialogContext);
+                        final Uri phoneUri = Uri(scheme: 'tel', path: phone);
+                        if (await canLaunchUrl(phoneUri)) {
+                          await launchUrl(phoneUri);
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text('Cancel',
+                  style: TextStyle(color: context.palette.textSecondary)),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error fetching emergency contacts: $e');
+      final Uri phoneUri = Uri(scheme: 'tel', path: '911');
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      }
+    }
+  }
+
+  Color _getAlertColor(String? type, String? severity) {
+    if (severity == 'critical') return AppColors.neonRed;
+    if (type == 'gait') return AppColors.neonOrange;
+    if (type == 'inactivity') return AppColors.neonOrange;
+    if (severity == 'warning') return AppColors.neonOrange;
+    return AppColors.neonCyan;
+  }
+
+  IconData _getAlertIcon(String? type) {
+    switch (type) {
+      case 'fall':
+        return Icons.warning;
+      case 'gait':
+        return Icons.directions_walk;
+      case 'inactivity':
+        return Icons.timer_off;
+      default:
+        return Icons.notifications;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeCount = _alerts.where((a) => !(a['resolved'] ?? false)).length;
+
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Alerts',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: context.palette.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$activeCount unacknowledged alerts',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: context.palette.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                GestureDetector(
+                  onTap: _fetchAlerts,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: context.palette.surfaceLight,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.refresh,
+                            size: 16, color: context.palette.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Refresh',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: context.palette.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Alert Tabs
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                _buildFilterChip('All', _selectedFilter == 'All'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Critical', _selectedFilter == 'Critical'),
+                const SizedBox(width: 8),
+                _buildFilterChip('Falls', _selectedFilter == 'Falls'),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Alerts List
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.neonCyan))
+                : _filteredAlerts.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.check_circle_outline,
+                                size: 48, color: context.palette.textSecondary),
+                            const SizedBox(height: 16),
+                            Text(
+                              _selectedFilter == 'All'
+                                  ? 'No alerts yet'
+                                  : 'No ${_selectedFilter.toLowerCase()} alerts',
+                              style: TextStyle(
+                                  color: context.palette.textSecondary,
+                                  fontSize: 16),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Alerts will appear here when fall, gait, or inactivity events are detected.',
+                              style: TextStyle(
+                                  color: context.palette.textSecondary,
+                                  fontSize: 12),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _fetchAlerts,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          itemCount: _filteredAlerts.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final alert = _filteredAlerts[index];
+                            return _buildDetailedAlertCard(alert);
+                          },
+                        ),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, bool isSelected) {
+    return GestureDetector(
+      onTap: () => setState(() => _selectedFilter = label),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.neonCyan.withValues(alpha: 0.15)
+              : context.palette.surfaceLight,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? AppColors.neonCyan : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color:
+                isSelected ? AppColors.neonCyan : context.palette.textSecondary,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailedAlertCard(Map<String, dynamic> alert) {
+    final type = alert['type'] as String? ?? 'unknown';
+    final severity = alert['severity'] as String? ?? 'info';
+    final color = _getAlertColor(type, severity);
+    final icon = _getAlertIcon(type);
+    final isResolved = alert['resolved'] ?? false;
+    final title = alert['title'] ?? type;
+    final elderlyId = alert['elderly_id'] ?? '';
+    final elderlyName = alert['elderly_name'] ?? elderlyId ?? 'Unknown';
+    final createdAt = alert['created_at'] ?? '';
+
+    // Format time
+    String timeAgo = createdAt;
+    try {
+      final dt = DateTime.parse(createdAt);
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 60) {
+        timeAgo = '${diff.inMinutes} min ago';
+      } else if (diff.inHours < 24) {
+        timeAgo = '${diff.inHours}h ago';
+      } else {
+        timeAgo = '${diff.inDays}d ago';
+      }
+    } catch (_) {}
+
+    return GlassmorphicCard(
+      glowColor: !isResolved ? color : null,
+      glowIntensity: 0.15,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: context.palette.textPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (!isResolved) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.neonRed,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'NEW',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$elderlyName • $timeAgo',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.palette.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: color.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  severity.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (!isResolved) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      try {
+                        final apiService = ref.read(apiServiceProvider);
+                        await apiService.put<Map<String, dynamic>>(
+                          '${ApiConfig.guardian}/alerts/${alert['id']}/acknowledge',
+                          body: {
+                            'response_action': 'acknowledged',
+                            'notes': ''
+                          },
+                          requireAuth: false,
+                        );
+                        _fetchAlerts();
+                      } catch (e) {
+                        debugPrint('Failed to acknowledge: $e');
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: color.withValues(alpha: 0.5)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    child: Text('Acknowledge',
+                        style: TextStyle(color: color, fontSize: 12)),
+                  ),
+                ),
+                if (type == 'fall') ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () =>
+                          _showEmergencyContactsForElderly(elderlyId),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.neonRed,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      child: const Text('Call Emergency',
+                          style: TextStyle(fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ============= Guardian Reports Tab =============
+
+class _GuardianReportsTab extends ConsumerStatefulWidget {
+  const _GuardianReportsTab();
+
+  @override
+  ConsumerState<_GuardianReportsTab> createState() =>
+      _GuardianReportsTabState();
+}
+
+class _GuardianReportsTabState extends ConsumerState<_GuardianReportsTab> {
+  bool _isGenerating = false;
+  String? _selectedReportType;
+  String? _selectedPatientId;
+  String? _selectedPatientName;
+  int _reportDays = 7;
+
+  @override
+  Widget build(BuildContext context) {
+    final connectionState = ref.watch(connectionProvider);
+    final patients = connectionState.myElderly;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Reports',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: context.palette.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Patient health and progress reports',
+              style:
+                  TextStyle(fontSize: 14, color: context.palette.textSecondary),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Patient Selector ──
+            Text('Select Patient',
+                style: TextStyle(
+                    fontSize: 13, color: context.palette.textSecondary)),
+            const SizedBox(height: 8),
+            if (patients.isEmpty)
+              GlassmorphicCard(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        color: context.palette.textSecondary
+                            .withValues(alpha: 0.6),
+                        size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                          'No elderly connected. Request connection with elderly users to view reports.',
+                          style: TextStyle(
+                              color: context.palette.textSecondary,
+                              fontSize: 13)),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: patients.map((p) {
+                  final isSelected = _selectedPatientId == p.id;
+                  return GestureDetector(
+                    onTap: () => setState(() {
+                      _selectedPatientId = p.id;
+                      _selectedPatientName = p.name;
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.neonCyan.withValues(alpha: 0.15)
+                            : context.palette.surfaceLight,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: isSelected
+                                ? AppColors.neonCyan
+                                : Colors.transparent),
+                      ),
+                      child: Text(
+                        p.name,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: isSelected
+                                ? AppColors.neonCyan
+                                : context.palette.textSecondary,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+
+            const SizedBox(height: 16),
+
+            // ── Period Selector ──
+            Row(
+              children: [
+                _buildPeriodChip('7 Days', 7),
+                const SizedBox(width: 8),
+                _buildPeriodChip('14 Days', 14),
+                const SizedBox(width: 8),
+                _buildPeriodChip('30 Days', 30),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── Report Types ──
+            _buildReportTypeCard(
+              type: 'health_summary',
+              title: 'Health Summary',
+              description: 'Overall health metrics and alert history',
+              icon: Icons.health_and_safety,
+              color: AppColors.neonGreen,
+            ),
+            const SizedBox(height: 12),
+            _buildReportTypeCard(
+              type: 'physio_progress',
+              title: 'Physio Progress',
+              description: 'Exercise completion and progress',
+              icon: Icons.accessibility_new,
+              color: AppColors.neonCyan,
+            ),
+            const SizedBox(height: 12),
+            _buildReportTypeCard(
+              type: 'nutrition',
+              title: 'Nutrition Tracking',
+              description: 'Meal logging and dietary intake',
+              icon: Icons.restaurant_menu,
+              color: AppColors.neonOrange,
+            ),
+            const SizedBox(height: 12),
+            _buildReportTypeCard(
+              type: 'fall_risk',
+              title: 'Fall Risk Assessment',
+              description: 'Alert history and risk analysis',
+              icon: Icons.warning,
+              color: AppColors.neonRed,
+            ),
+            const SizedBox(height: 12),
+            _buildReportTypeCard(
+              type: 'activity_logs',
+              title: 'Activity Log',
+              description: 'Daily activity timeline from real events',
+              icon: Icons.timeline,
+              color: AppColors.neonPurple,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPeriodChip(String label, int days) {
+    final isSelected = _reportDays == days;
+    return GestureDetector(
+      onTap: () => setState(() => _reportDays = days),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.neonGreen.withValues(alpha: 0.15)
+              : context.palette.surfaceLight,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: isSelected ? AppColors.neonGreen : Colors.transparent),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 12,
+                color: isSelected
+                    ? AppColors.neonGreen
+                    : context.palette.textSecondary)),
+      ),
+    );
+  }
+
+  Widget _buildReportTypeCard({
+    required String type,
+    required String title,
+    required String description,
+    required IconData icon,
+    required Color color,
+  }) {
+    final isLoading = _isGenerating && _selectedReportType == type;
+
+    return GestureDetector(
+      onTap: isLoading ? null : () => _generateReport(type, title, color),
+      child: GlassmorphicCard(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12)),
+              child: isLoading
+                  ? SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(
+                          color: color, strokeWidth: 2))
+                  : Icon(icon, color: color, size: 26),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: context.palette.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text(description,
+                      style: TextStyle(
+                          fontSize: 12, color: context.palette.textSecondary)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _generateReport(String type, String title, Color color) async {
+    if (_selectedPatientId == null || _selectedPatientId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please select a patient first'),
+            backgroundColor: AppColors.neonOrange,
+            behavior: SnackBarBehavior.floating),
+      );
+      return;
+    }
+
+    setState(() {
+      _isGenerating = true;
+      _selectedReportType = type;
+    });
+
+    try {
+      final apiService = ref.read(apiServiceProvider);
+
+      if (type == 'activity_logs') {
+        final response = await apiService.get<Map<String, dynamic>>(
+          '/api/reports/activity-log/$_selectedPatientId?days=$_reportDays',
+          requireAuth: false,
+        );
+        if (mounted && response.success && response.data != null) {
+          _showActivityLogDialog(response.data!, color);
+        }
+      } else {
+        final response = await apiService.get<Map<String, dynamic>>(
+          '/api/reports/patient/$_selectedPatientId?days=$_reportDays',
+          requireAuth: false,
+        );
+        if (mounted && response.success && response.data != null) {
+          _showReportDialog(title, type, color, response.data!);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error generating report: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Failed to generate report: $e'),
+              behavior: SnackBarBehavior.floating),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+          _selectedReportType = null;
+        });
+      }
+    }
+  }
+
+  void _showReportDialog(
+      String title, String type, Color color, Map<String, dynamic> data) {
+    final period = data['period'] ?? 'Last $_reportDays days';
+    final patientLabel = _selectedPatientName ?? 'Patient';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: context.palette.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: context.palette.glassBorder,
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Icon(_getIconForType(type), color: color, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: context.palette.textPrimary)),
+                      Text('$patientLabel • $period',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: context.palette.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Divider(color: context.palette.glassBorder),
+            const SizedBox(height: 16),
+            Flexible(
+              child: SingleChildScrollView(
+                  child: _buildReportContent(type, color, data)),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: context.palette.textSecondary,
+                  side: BorderSide(color: context.palette.glassBorder),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Close'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showActivityLogDialog(Map<String, dynamic> data, Color color) {
+    final activities = (data['activities'] as List?) ?? [];
+    final summary = (data['summary'] as Map<String, dynamic>?) ?? {};
+    final patientLabel = _selectedPatientName ?? 'Patient';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: context.palette.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: context.palette.glassBorder,
+                    borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.timeline, color: color, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Activity Log',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: context.palette.textPrimary)),
+                      Text('$patientLabel • Last $_reportDays day(s)',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: context.palette.textSecondary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            GlassmorphicCard(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildSummaryItem('Meals', '${summary['meals'] ?? 0}',
+                      AppColors.neonOrange),
+                  Container(
+                      width: 1, height: 30, color: context.palette.glassBorder),
+                  _buildSummaryItem('Exercises', '${summary['exercises'] ?? 0}',
+                      AppColors.neonGreen),
+                  Container(
+                      width: 1, height: 30, color: context.palette.glassBorder),
+                  _buildSummaryItem(
+                      'Alerts', '${summary['alerts'] ?? 0}', AppColors.neonRed),
+                  Container(
+                      width: 1, height: 30, color: context.palette.glassBorder),
+                  _buildSummaryItem(
+                      'Hydration',
+                      '${summary['hydration_entries'] ?? 0}',
+                      AppColors.neonCyan),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Divider(color: context.palette.glassBorder),
+            const SizedBox(height: 8),
+            Expanded(
+              child: activities.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.timeline,
+                              color: context.palette.textSecondary
+                                  .withValues(alpha: 0.3),
+                              size: 48),
+                          const SizedBox(height: 12),
+                          Text('No activity recorded',
+                              style: TextStyle(
+                                  color: context.palette.textSecondary)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: activities.length,
+                      itemBuilder: (context, index) {
+                        final a =
+                            Map<String, dynamic>.from(activities[index] as Map);
+                        final isLast = index == activities.length - 1;
+                        return _buildActivityTimelineItem(a, isLast);
+                      },
+                    ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: context.palette.textSecondary,
+                  side: BorderSide(color: context.palette.glassBorder),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text('Close'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryItem(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(value,
+            style: TextStyle(
+                fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+        const SizedBox(height: 2),
+        Text(label,
+            style:
+                TextStyle(fontSize: 10, color: context.palette.textSecondary)),
+      ],
+    );
+  }
+
+  Widget _buildActivityTimelineItem(
+      Map<String, dynamic> activity, bool isLast) {
+    final category = activity['category'] ?? '';
+    final color = _getCategoryColor(category);
+    final icon = _getCategoryIcon(category);
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Column(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10)),
+                child: Icon(icon, color: color, size: 16),
+              ),
+              if (!isLast)
+                Expanded(
+                    child: Container(
+                        width: 2,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        color: context.palette.glassBorder)),
+            ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: GlassmorphicCard(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                            child: Text(activity['event'] ?? '',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.palette.textPrimary))),
+                        Text(activity['time'] ?? '',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: color,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                    if ((activity['detail'] ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(activity['detail'],
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: context.palette.textSecondary)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'nutrition':
+        return AppColors.neonOrange;
+      case 'hydration':
+        return AppColors.neonCyan;
+      case 'exercise':
+        return AppColors.neonGreen;
+      case 'alert':
+        return AppColors.neonRed;
+      default:
+        return AppColors.neonPurple;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'nutrition':
+        return Icons.restaurant;
+      case 'hydration':
+        return Icons.water_drop;
+      case 'exercise':
+        return Icons.fitness_center;
+      case 'alert':
+        return Icons.warning;
+      default:
+        return Icons.circle;
+    }
+  }
+
+  IconData _getIconForType(String type) {
+    switch (type) {
+      case 'health_summary':
+        return Icons.health_and_safety;
+      case 'physio_progress':
+        return Icons.accessibility_new;
+      case 'nutrition':
+        return Icons.restaurant_menu;
+      case 'fall_risk':
+        return Icons.warning;
+      case 'activity_logs':
+        return Icons.timeline;
+      default:
+        return Icons.description;
+    }
+  }
+
+  Widget _buildReportContent(
+      String type, Color color, Map<String, dynamic> data) {
+    final nutrition = (data['nutrition'] as Map<String, dynamic>?) ?? {};
+    final hydration = (data['hydration'] as Map<String, dynamic>?) ?? {};
+    final physio = (data['physio'] as Map<String, dynamic>?) ?? {};
+    final safety = (data['safety'] as Map<String, dynamic>?) ?? {};
+
+    switch (type) {
+      case 'health_summary':
+        return Column(
+          children: [
+            _buildStatRow('Total Alerts', '${safety['total_alerts'] ?? 0}',
+                AppColors.neonRed),
+            _buildStatRow('Fall Alerts', '${safety['fall_alerts'] ?? 0}',
+                AppColors.neonRed),
+            _buildStatRow('Unresolved', '${safety['unresolved'] ?? 0}',
+                AppColors.neonOrange),
+            Divider(color: context.palette.glassBorder, height: 28),
+            _buildStatRow('Meals Logged', '${nutrition['meals_logged'] ?? 0}',
+                AppColors.neonOrange),
+            _buildStatRow('Avg Calories/Day',
+                '${nutrition['avg_calories'] ?? 0}', AppColors.neonOrange),
+            _buildStatRow('Hydration (avg)',
+                '${hydration['daily_avg_ml'] ?? 0} ml', AppColors.neonCyan),
+            Divider(color: context.palette.glassBorder, height: 28),
+            _buildStatRow('Exercise Plans', '${physio['total_plans'] ?? 0}',
+                AppColors.neonGreen),
+            _buildStatRow('Plans Completed',
+                '${physio['completed_plans'] ?? 0}', AppColors.neonGreen),
+            _buildStatRow('Completion Rate', physio['completion_rate'] ?? '0%',
+                AppColors.neonGreen),
+          ],
+        );
+
+      case 'physio_progress':
+        return Column(
+          children: [
+            _buildStatRow(
+                'Total Plans', '${physio['total_plans'] ?? 0}', color),
+            _buildStatRow('Completed Plans',
+                '${physio['completed_plans'] ?? 0}', AppColors.neonGreen),
+            _buildStatRow('Completion Rate', physio['completion_rate'] ?? '0%',
+                AppColors.neonGreen),
+            _buildStatRow('Total Exercises',
+                '${physio['total_exercises'] ?? 0}', AppColors.neonCyan),
+            _buildStatRow('Exercises Done',
+                '${physio['completed_exercises'] ?? 0}', AppColors.neonCyan),
+            if (physio['note'] != null) ...[
+              const SizedBox(height: 16),
+              _buildInfoCard(physio['note']),
+            ],
+          ],
+        );
+
+      case 'nutrition':
+        return Column(
+          children: [
+            _buildStatRow(
+                'Meals Logged', '${nutrition['meals_logged'] ?? 0}', color),
+            _buildStatRow('Avg Calories/Day',
+                '${nutrition['avg_calories'] ?? 0}', AppColors.neonOrange),
+            _buildStatRow('Avg Protein/Day',
+                '${nutrition['avg_protein'] ?? 0}g', AppColors.neonGreen),
+            _buildStatRow('Avg Carbs/Day', '${nutrition['avg_carbs'] ?? 0}g',
+                AppColors.neonCyan),
+            _buildStatRow('Avg Fat/Day', '${nutrition['avg_fat'] ?? 0}g',
+                AppColors.neonPurple),
+            Divider(color: context.palette.glassBorder, height: 28),
+            _buildStatRow('Hydration Entries', '${hydration['entries'] ?? 0}',
+                AppColors.neonCyan),
+            _buildStatRow('Total Water', '${hydration['total_ml'] ?? 0} ml',
+                AppColors.neonCyan),
+            _buildStatRow('Daily Avg Water',
+                '${hydration['daily_avg_ml'] ?? 0} ml', AppColors.neonCyan),
+            if (nutrition['note'] != null) ...[
+              const SizedBox(height: 16),
+              _buildInfoCard(nutrition['note']),
+            ],
+          ],
+        );
+
+      case 'fall_risk':
+        return Column(
+          children: [
+            _buildStatRow(
+                'Total Alerts', '${safety['total_alerts'] ?? 0}', color),
+            _buildStatRow('Fall Alerts', '${safety['fall_alerts'] ?? 0}',
+                AppColors.neonRed),
+            _buildStatRow('Gait Warnings', '${safety['gait_alerts'] ?? 0}',
+                AppColors.neonOrange),
+            _buildStatRow('Inactivity Alerts',
+                '${safety['inactivity_alerts'] ?? 0}', AppColors.neonPurple),
+            _buildStatRow('SOS Emergencies', '${safety['sos_alerts'] ?? 0}',
+                AppColors.neonRed),
+            _buildStatRow('Meal Skip Alerts',
+                '${safety['meal_skip_alerts'] ?? 0}', AppColors.neonOrange),
+            Divider(color: context.palette.glassBorder, height: 28),
+            _buildStatRow('Unresolved', '${safety['unresolved'] ?? 0}',
+                AppColors.neonOrange),
+          ],
+        );
+
+      default:
+        return Text('Report data unavailable',
+            style: TextStyle(color: context.palette.textSecondary));
+    }
+  }
+
+  Widget _buildInfoCard(String text) {
+    return GlassmorphicCard(
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline,
+              color: context.palette.textSecondary, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+              child: Text(text,
+                  style: TextStyle(
+                      color: context.palette.textSecondary, fontSize: 13))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(String label, String value, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  color: context.palette.textSecondary, fontSize: 14)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8)),
+            child: Text(value,
+                style: TextStyle(
+                    color: color, fontWeight: FontWeight.w600, fontSize: 14)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============= Elderly List Tab =============
+
+class _ElderlyListTab extends ConsumerStatefulWidget {
+  final void Function([ElderlyInfo?]) onNavigateToMonitor;
+
+  const _ElderlyListTab({required this.onNavigateToMonitor});
+
+  @override
+  ConsumerState<_ElderlyListTab> createState() => _ElderlyListTabState();
+}
+
+class _ElderlyListTabState extends ConsumerState<_ElderlyListTab> {
+  bool _hasLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Load connected elderly on init - only once
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_hasLoaded) {
+        _hasLoaded = true;
+        ref.read(connectionProvider.notifier).loadMyElderly();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final connectionState = ref.watch(connectionProvider);
+    final elderlyList = connectionState.myElderly;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'My Elderly',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: context.palette.textPrimary,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () =>
+                      Navigator.pushNamed(context, AppRoutes.connections),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.neonGreen.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.add, color: AppColors.neonGreen),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              elderlyList.isEmpty
+                  ? 'No elderly connected yet'
+                  : '${elderlyList.length} elderly under your care',
+              style: TextStyle(
+                fontSize: 14,
+                color: context.palette.textSecondary,
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Connected Elderly Cards
+            if (connectionState.isLoading)
+              const Center(child: CircularProgressIndicator())
+            else if (elderlyList.isEmpty)
+              _buildEmptyState()
+            else
+              ...elderlyList.map((elderly) => Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _buildElderlyProfileCard(elderly),
+                  )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return GlassmorphicCard(
+      glowColor: AppColors.neonGreen,
+      glowIntensity: 0.1,
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        children: [
+          Icon(
+            Icons.elderly_woman,
+            size: 64,
+            color: context.palette.textSecondary.withValues(alpha: 0.5),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No Elderly Connected',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: context.palette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Connect with elderly users by sharing your invite code or entering their code.',
+            style: TextStyle(
+              fontSize: 14,
+              color: context.palette.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () =>
+                Navigator.pushNamed(context, AppRoutes.connections),
+            icon: const Icon(Icons.add),
+            label: const Text('Add Connection'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.neonGreen,
+              foregroundColor: Colors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildElderlyProfileCard(ElderlyInfo elderly) {
+    final name = elderly.name;
+    final connectionType = elderly.connectionType;
+    final connectedAt = elderly.connectedAt;
+    final color = connectionType == 'guardian'
+        ? AppColors.neonGreen
+        : AppColors.neonOrange;
+
+    // Parse connection date
+    String connectionDate = 'Connected';
+    try {
+      final date = DateTime.parse(connectedAt);
+      final diff = DateTime.now().difference(date);
+      if (diff.inDays == 0) {
+        connectionDate = 'Connected today';
+      } else if (diff.inDays == 1) {
+        connectionDate = 'Connected yesterday';
+      } else {
+        connectionDate = 'Connected ${diff.inDays} days ago';
+      }
+    } catch (_) {}
+
+    return GlassmorphicCard(
+      glowColor: color,
+      glowIntensity: 0.15,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: color, width: 2),
+                ),
+                child: Icon(Icons.elderly, color: color, size: 30),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: context.palette.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      connectionDate,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.palette.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          connectionType == 'guardian'
+                              ? 'Guardian'
+                              : 'Caregiver',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: color,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Connection type badge
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  connectionType == 'guardian'
+                      ? '👨‍👩‍👦 Family'
+                      : '👩‍⚕️ Care',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Nutrition Summary Row
+          _ElderlyNutritionSummary(elderlyId: elderly.id),
+
+          const SizedBox(height: 12),
+          Divider(color: context.palette.glassBorder),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => widget.onNavigateToMonitor(elderly),
+                  icon: const Icon(Icons.videocam, size: 16),
+                  label: const Text('Watch',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: color.withValues(alpha: 0.5)),
+                    foregroundColor: color,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ActivityLogScreen(
+                            elderlyId: elderly.id,
+                            elderlyName: elderly.name,
+                          ),
+                        ));
+                  },
+                  icon: const Icon(Icons.bar_chart, size: 16),
+                  label: const Text('Reports',
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                        color: AppColors.neonCyan.withValues(alpha: 0.5)),
+                    foregroundColor: AppColors.neonCyan,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Container(
+                decoration: BoxDecoration(
+                  color: context.palette.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: PopupMenuButton<String>(
+                  icon: Icon(Icons.more_vert,
+                      color: context.palette.textSecondary),
+                  color: context.palette.surface,
+                  onSelected: (value) async {
+                    switch (value) {
+                      case 'activity':
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ActivityLogScreen(
+                                elderlyId: elderly.id,
+                                elderlyName: elderly.name,
+                              ),
+                            ));
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'activity',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.history,
+                              color: AppColors.neonCyan, size: 20),
+                          const SizedBox(width: 12),
+                          Text('Activity Log',
+                              style: TextStyle(
+                                  color: context.palette.textPrimary)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============= Elderly Nutrition Summary Widget =============
+
+class _ElderlyNutritionSummary extends ConsumerStatefulWidget {
+  final String elderlyId;
+
+  const _ElderlyNutritionSummary({required this.elderlyId});
+
+  @override
+  ConsumerState<_ElderlyNutritionSummary> createState() =>
+      _ElderlyNutritionSummaryState();
+}
+
+class _ElderlyNutritionSummaryState
+    extends ConsumerState<_ElderlyNutritionSummary> {
+  bool _isLoading = true;
+  int _calories = 0;
+  int _caloriesTarget = 1800;
+  int _hydrationGlasses = 0;
+  int _mealsLogged = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNutritionData();
+  }
+
+  Future<void> _loadNutritionData() async {
+    try {
+      final api = ref.read(apiServiceProvider);
+      final response =
+          await api.get('/api/nutrition/daily-summary/${widget.elderlyId}');
+      if (response.success && response.data != null && mounted) {
+        setState(() {
+          _calories = (response.data['total_calories'] as num?)?.toInt() ?? 0;
+          _caloriesTarget =
+              (response.data['target_calories'] as num?)?.toInt() ?? 1800;
+          _mealsLogged = (response.data['meals'] as List?)?.length ?? 0;
+        });
+      }
+
+      // Also load hydration
+      final hydrationResponse =
+          await api.get('/api/nutrition/hydration/${widget.elderlyId}');
+      if (hydrationResponse.success &&
+          hydrationResponse.data != null &&
+          mounted) {
+        setState(() {
+          _hydrationGlasses =
+              (hydrationResponse.data['glasses'] as num?)?.toInt() ?? 0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading elderly nutrition: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const SizedBox(
+        height: 40,
+        child: Center(
+          child: SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    final caloriePercent = _caloriesTarget > 0
+        ? (_calories / _caloriesTarget * 100).clamp(0, 100).toInt()
+        : 0;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.palette.surfaceLight.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildStatItem(
+            icon: Icons.local_fire_department,
+            label: 'Calories',
+            value: '$_calories',
+            subValue: '$caloriePercent%',
+            color: AppColors.neonOrange,
+          ),
+          Container(
+            width: 1,
+            height: 35,
+            color: context.palette.glassBorder,
+          ),
+          _buildStatItem(
+            icon: Icons.water_drop,
+            label: 'Hydration',
+            value: '$_hydrationGlasses',
+            subValue: '/8 glasses',
+            color: AppColors.neonPurple,
+          ),
+          Container(
+            width: 1,
+            height: 35,
+            color: context.palette.glassBorder,
+          ),
+          _buildStatItem(
+            icon: Icons.restaurant,
+            label: 'Meals',
+            value: '$_mealsLogged',
+            subValue: 'today',
+            color: AppColors.neonGreen,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String subValue,
+    required Color color,
+  }) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Text(
+              subValue,
+              style: TextStyle(
+                fontSize: 10,
+                color: context.palette.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: context.palette.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============= Fullscreen Video Screen =============
+
+class _FullscreenVideoScreen extends StatefulWidget {
+  final String streamUrl;
+  final String elderlyName;
+  final String timestamp;
+
+  const _FullscreenVideoScreen({
+    required this.streamUrl,
+    required this.elderlyName,
+    required this.timestamp,
+  });
+
+  @override
+  State<_FullscreenVideoScreen> createState() => _FullscreenVideoScreenState();
+}
+
+class _FullscreenVideoScreenState extends State<_FullscreenVideoScreen> {
+  Timer? _timestampTimer;
+  String _currentTimestamp = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _currentTimestamp = widget.timestamp;
+    _timestampTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _updateTimestamp());
+  }
+
+  void _updateTimestamp() {
+    final now = DateTime.now();
+    if (mounted) {
+      setState(() {
+        _currentTimestamp =
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
+            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timestampTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Video stream
+          MjpegStream(
+            streamUrl: widget.streamUrl,
+            isLive: true,
+            fit: BoxFit.contain,
+            loadingWidget: const Center(
+              child: CircularProgressIndicator(color: AppColors.neonCyan),
+            ),
+            onError: (error) {
+              debugPrint('❌ Fullscreen Video Error: $error');
+            },
+          ),
+
+          // LIVE indicator
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.neonGreen.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.circle, color: AppColors.neonGreen, size: 10),
+                  SizedBox(width: 6),
+                  Text('LIVE',
+                      style: TextStyle(
+                          color: AppColors.neonGreen,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+
+          // Close button
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            right: 16,
+            child: GestureDetector(
+              onTap: () => Navigator.of(context).pop(),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.fullscreen_exit,
+                    color: Colors.white, size: 24),
+              ),
+            ),
+          ),
+
+          // Elderly name
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            left: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                widget.elderlyName,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16),
+              ),
+            ),
+          ),
+
+          // Timestamp
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.access_time,
+                      color: AppColors.neonCyan, size: 16),
+                  const SizedBox(width: 8),
+                  Text(
+                    _currentTimestamp,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
