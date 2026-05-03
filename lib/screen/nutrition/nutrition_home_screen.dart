@@ -1,0 +1,748 @@
+/// SMARTCARE+ Nutrition Home Screen
+///
+/// Owner: Dilshan
+/// Main dashboard for nutrition and dietary tracking
+library;
+
+import 'package:flutter/material.dart';
+import '../../core/config/theme.dart';
+import '../../core/config/routes.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/constants/colors.dart';
+import '../../widgets/common/glassmorphic_card.dart';
+import '../../providers/auth_provider.dart';
+import '../../core/services/api_service.dart';
+
+class NutritionHomeScreen extends ConsumerStatefulWidget {
+  const NutritionHomeScreen({super.key});
+
+  @override
+  ConsumerState<NutritionHomeScreen> createState() =>
+      _NutritionHomeScreenState();
+}
+
+class _NutritionHomeScreenState extends ConsumerState<NutritionHomeScreen> {
+  bool _isLoading = true;
+  Map<String, dynamic> _dailySummary = {};
+  List<Map<String, dynamic>> _todaysMeals = [];
+  int _hydrationGlasses = 0;
+  final int _hydrationGoal = 8;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadNutritionData();
+    });
+  }
+
+  String get _userId => ref.read(currentUserProvider)?.uid ?? 'demo_user';
+
+  Future<void> _loadNutritionData() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final api = ref.read(apiServiceProvider);
+      final userId = _userId;
+
+      // Load daily summary
+      final summaryResponse =
+          await api.get('/api/nutrition/daily-summary/$userId');
+      if (summaryResponse.success && summaryResponse.data != null) {
+        _dailySummary = Map<String, dynamic>.from(summaryResponse.data);
+      }
+
+      // Load hydration data
+      final hydrationResponse =
+          await api.get('/api/nutrition/hydration/$userId');
+      if (hydrationResponse.success && hydrationResponse.data != null) {
+        _hydrationGlasses =
+            (hydrationResponse.data['glasses'] as num?)?.toInt() ?? 0;
+      }
+
+      // Extract meals from summary
+      if (_dailySummary['meals'] != null) {
+        _todaysMeals = List<Map<String, dynamic>>.from(_dailySummary['meals']);
+      }
+
+      // Check for skipped meals (triggers notifications if needed)
+      _checkMealSkips();
+    } catch (e) {
+      debugPrint('Error loading nutrition data: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _addWaterGlass() async {
+    try {
+      final api = ref.read(apiServiceProvider);
+      await api.post('/api/nutrition/hydration/log', body: {
+        'user_id': _userId,
+        'amount_ml': 250,
+        'beverage_type': 'water',
+      });
+      setState(() {
+        _hydrationGlasses = (_hydrationGlasses + 1).clamp(0, _hydrationGoal);
+      });
+    } catch (e) {
+      debugPrint('Error logging hydration: $e');
+    }
+  }
+
+  Future<void> _checkMealSkips() async {
+    try {
+      final api = ref.read(apiServiceProvider);
+      await api.get('/api/nutrition/check-meal-skips/$_userId');
+    } catch (_) {}
+  }
+
+  num _parseNum(dynamic value) {
+    if (value == null) return 0;
+    if (value is num) return value;
+    if (value is String) return num.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  num _getNutrient(String key, String field) {
+    final val = _dailySummary[key];
+    if (val is Map) return _parseNum(val[field]);
+    if (field == 'consumed') return _parseNum(val);
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final caloriesConsumed = _parseNum(_dailySummary['total_calories'] ??
+        _getNutrient('calories', 'consumed'));
+    final caloriesTarget = _parseNum(
+        _dailySummary['target_calories'] ?? _getNutrient('calories', 'goal'));
+    final protein = _getNutrient('protein', 'consumed');
+    final proteinTarget = _getNutrient('protein', 'goal');
+    final carbs = _getNutrient('carbohydrates', 'consumed');
+    final carbsTarget = _getNutrient('carbohydrates', 'goal');
+    final fat = _getNutrient('fat', 'consumed');
+    final fatTarget = _getNutrient('fat', 'goal');
+    final fiber = _getNutrient('fiber', 'consumed');
+    final fiberTarget = _getNutrient('fiber', 'goal');
+
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: context.palette.backgroundGradient,
+          ),
+        ),
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _loadNutritionData,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Row(
+                    children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: context.palette.surfaceLight,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(Icons.arrow_back,
+                              color: context.palette.textPrimary),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Nutrition',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: context.palette.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              'Track your meals & hydration',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: context.palette.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.neonGreen.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.restaurant,
+                            color: AppColors.neonGreen, size: 24),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  if (_isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(40),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  else ...[
+                    // Daily Summary Card
+                    GlassmorphicCard(
+                      glowColor: AppColors.neonGreen,
+                      glowIntensity: 0.15,
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                "Today's Summary",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.palette.textPrimary,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.neonGreen
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${caloriesConsumed.toInt()} / ${caloriesTarget.toInt()} cal',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.neonGreen,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              _buildNutrientColumn(
+                                  'Protein',
+                                  protein.toDouble(),
+                                  proteinTarget.toDouble(),
+                                  AppColors.neonCyan),
+                              _buildNutrientColumn('Carbs', carbs.toDouble(),
+                                  carbsTarget.toDouble(), AppColors.neonOrange),
+                              _buildNutrientColumn('Fat', fat.toDouble(),
+                                  fatTarget.toDouble(), AppColors.neonPurple),
+                              _buildNutrientColumn('Fiber', fiber.toDouble(),
+                                  fiberTarget.toDouble(), AppColors.neonGreen),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Quick Actions
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildQuickAction(
+                            context,
+                            icon: Icons.camera_alt,
+                            label: 'Scan Food',
+                            color: AppColors.neonCyan,
+                            onTap: () => Navigator.pushNamed(
+                                    context, AppRoutes.foodScanner)
+                                .then((_) => _loadNutritionData()),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildQuickAction(
+                            context,
+                            icon: Icons.add_circle_outline,
+                            label: 'Log Meal',
+                            color: AppColors.neonGreen,
+                            onTap: () =>
+                                Navigator.pushNamed(context, AppRoutes.mealLog)
+                                    .then((_) => _loadNutritionData()),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildQuickAction(
+                            context,
+                            icon: Icons.water_drop,
+                            label: 'Hydration',
+                            color: AppColors.neonPurple,
+                            onTap: () => Navigator.pushNamed(
+                                    context, AppRoutes.hydration)
+                                .then((_) => _loadNutritionData()),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Hydration Card
+                    GlassmorphicCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.neonPurple
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.water_drop,
+                                        color: AppColors.neonPurple, size: 18),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Hydration',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: context.palette.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Flexible(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        '$_hydrationGlasses / $_hydrationGoal glasses',
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: AppColors.neonPurple,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    GestureDetector(
+                                      onTap: _addWaterGlass,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.neonPurple
+                                              .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                        ),
+                                        child: const Icon(Icons.add,
+                                            color: AppColors.neonPurple,
+                                            size: 18),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: LinearProgressIndicator(
+                              value: _hydrationGlasses / _hydrationGoal,
+                              backgroundColor: context.palette.glassBorder,
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                  AppColors.neonPurple),
+                              minHeight: 10,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: List.generate(_hydrationGoal, (index) {
+                              final filled = index < _hydrationGlasses;
+                              return GestureDetector(
+                                onTap: _addWaterGlass,
+                                child: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: filled
+                                        ? AppColors.neonPurple
+                                            .withValues(alpha: 0.2)
+                                        : context.palette.surfaceLight,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: filled
+                                          ? AppColors.neonPurple
+                                          : context.palette.glassBorder,
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.water_drop,
+                                    size: 16,
+                                    color: filled
+                                        ? AppColors.neonPurple
+                                        : context.palette.textSecondary,
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Today's Meals
+                    Text(
+                      "Today's Meals",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: context.palette.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (_todaysMeals.isEmpty)
+                      GlassmorphicCard(
+                        padding: const EdgeInsets.all(24),
+                        child: Center(
+                          child: Column(
+                            children: [
+                              Icon(Icons.restaurant_menu,
+                                  size: 48, color: context.palette.textMuted),
+                              const SizedBox(height: 12),
+                              Text(
+                                'No meals logged today',
+                                style: TextStyle(
+                                    color: context.palette.textSecondary),
+                              ),
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: () => Navigator.pushNamed(
+                                    context, AppRoutes.mealLog),
+                                child: const Text('Log your first meal'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      ..._todaysMeals.map((meal) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _buildMealCard(
+                              mealType:
+                                  (meal['meal_type'] as String?) ?? 'Meal',
+                              time: (meal['time'] as String?) ?? '',
+                              calories: _parseNum(meal['calories']).toInt(),
+                              items: (meal['foods'] as List?)
+                                      ?.map((f) => f['name'])
+                                      .join(', ') ??
+                                  '',
+                              icon: _getMealIcon(
+                                  (meal['meal_type'] as String?) ?? ''),
+                              color: _getMealColor(
+                                  (meal['meal_type'] as String?) ?? ''),
+                            ),
+                          )),
+
+                    // Show pending meal types
+                    ..._getPendingMealTypes().map((mealType) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildMealCard(
+                            mealType: mealType,
+                            time: 'Not logged',
+                            calories: 0,
+                            items: 'Tap to log $mealType',
+                            icon: _getMealIcon(mealType),
+                            color: context.palette.textSecondary,
+                            isPending: true,
+                          ),
+                        )),
+
+                    const SizedBox(height: 24),
+
+                    // Meal Plan Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, AppRoutes.mealPlan),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              AppColors.neonGreen.withValues(alpha: 0.15),
+                          foregroundColor: AppColors.neonGreen,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: const BorderSide(color: AppColors.neonGreen),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.calendar_month),
+                            SizedBox(width: 8),
+                            Text(
+                              'View Meal Plan',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<String> _getPendingMealTypes() {
+    final loggedTypes = _todaysMeals
+        .map((m) => (m['meal_type'] as String?)?.toLowerCase() ?? '')
+        .toSet();
+    final allTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
+    return allTypes
+        .where((t) => !loggedTypes.contains(t))
+        .map((t) => t[0].toUpperCase() + t.substring(1))
+        .toList();
+  }
+
+  IconData _getMealIcon(String mealType) {
+    switch (mealType.toLowerCase()) {
+      case 'breakfast':
+        return Icons.wb_sunny;
+      case 'lunch':
+        return Icons.wb_cloudy;
+      case 'dinner':
+        return Icons.nights_stay;
+      case 'snack':
+        return Icons.cookie;
+      default:
+        return Icons.restaurant;
+    }
+  }
+
+  Color _getMealColor(String mealType) {
+    switch (mealType.toLowerCase()) {
+      case 'breakfast':
+        return AppColors.neonOrange;
+      case 'lunch':
+        return AppColors.neonCyan;
+      case 'dinner':
+        return AppColors.neonPurple;
+      case 'snack':
+        return AppColors.neonGreen;
+      default:
+        return AppColors.neonGreen;
+    }
+  }
+
+  Widget _buildNutrientColumn(
+      String label, double current, double goal, Color color) {
+    final percentage = goal > 0 ? (current / goal).clamp(0.0, 1.0) : 0.0;
+
+    return Column(
+      children: [
+        Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: 50,
+              height: 50,
+              child: CircularProgressIndicator(
+                value: percentage,
+                backgroundColor: context.palette.glassBorder,
+                valueColor: AlwaysStoppedAnimation<Color>(color),
+                strokeWidth: 5,
+              ),
+            ),
+            Text(
+              '${current.toInt()}g',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: context.palette.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickAction(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: GlassmorphicCard(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: context.palette.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMealCard({
+    required String mealType,
+    required String time,
+    required int calories,
+    required String items,
+    required IconData icon,
+    required Color color,
+    bool isPending = false,
+  }) {
+    return GestureDetector(
+      onTap: isPending
+          ? () => Navigator.pushNamed(context, AppRoutes.mealLog)
+          : null,
+      child: GlassmorphicCard(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        mealType,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: isPending
+                              ? context.palette.textSecondary
+                              : context.palette.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        time,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color:
+                              isPending ? context.palette.textSecondary : color,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    items,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isPending
+                          ? context.palette.textSecondary
+                          : context.palette.textPrimary.withValues(alpha: 0.8),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (!isPending) ...[
+              const SizedBox(width: 12),
+              Text(
+                '$calories cal',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
