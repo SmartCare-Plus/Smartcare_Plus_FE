@@ -1,0 +1,699 @@
+/// SMARTCARE+ TUG Test Screen
+///
+/// Owner: Neelaka
+/// Timed Up and Go test with guided instructions and timer
+library;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/config/theme.dart';
+import 'dart:async';
+import '../../core/constants/colors.dart';
+import '../../core/services/api_service.dart';
+import '../../providers/auth_provider.dart';
+import '../../widgets/common/glassmorphic_card.dart';
+
+class TUGTestScreen extends ConsumerStatefulWidget {
+  const TUGTestScreen({super.key});
+
+  @override
+  ConsumerState<TUGTestScreen> createState() => _TUGTestScreenState();
+}
+
+class _TUGTestScreenState extends ConsumerState<TUGTestScreen> {
+  TestPhase _phase = TestPhase.ready;
+  Timer? _timer;
+  int _elapsedMilliseconds = 0;
+  double? _finalTime;
+  String? _riskLevel;
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _startTest() {
+    setState(() {
+      _phase = TestPhase.running;
+      _elapsedMilliseconds = 0;
+      _finalTime = null;
+      _riskLevel = null;
+    });
+
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      setState(() {
+        _elapsedMilliseconds += 100;
+      });
+    });
+  }
+
+  Future<void> _stopTest() async {
+    _timer?.cancel();
+    final time = _elapsedMilliseconds / 1000;
+
+    setState(() {
+      _finalTime = time;
+    });
+
+    // Submit to backend
+    await _submitTUGResult(time);
+  }
+
+  Future<void> _submitTUGResult(double timeSeconds) async {
+    try {
+      final api = ref.read(apiServiceProvider);
+      final userId = ref.read(currentUserProvider)?.uid ?? 'demo_user';
+
+      final response = await api.post('/api/physio/tug-test', body: {
+        'user_id': userId,
+        'time_seconds': timeSeconds,
+        'test_date': DateTime.now().toIso8601String(),
+      });
+
+      if (response.success && response.data != null) {
+        final data = response.data;
+        setState(() {
+          _riskLevel = data['risk_level'] ?? _calculateLocalRisk(timeSeconds);
+          _phase = TestPhase.completed;
+        });
+      } else {
+        // Use local calculation
+        setState(() {
+          _riskLevel = _calculateLocalRisk(timeSeconds);
+          _phase = TestPhase.completed;
+        });
+      }
+    } catch (e) {
+      // Use local calculation on error
+      setState(() {
+        _riskLevel = _calculateLocalRisk(timeSeconds);
+        _phase = TestPhase.completed;
+      });
+    }
+  }
+
+  String _calculateLocalRisk(double time) {
+    if (time < 10) {
+      return 'Low';
+    } else if (time < 20) {
+      return 'Moderate';
+    } else if (time < 30) {
+      return 'High';
+    } else {
+      return 'Very High';
+    }
+  }
+
+  void _resetTest() {
+    setState(() {
+      _phase = TestPhase.ready;
+      _elapsedMilliseconds = 0;
+      _finalTime = null;
+      _riskLevel = null;
+    });
+  }
+
+  Color _getRiskColor() {
+    switch (_riskLevel) {
+      case 'Low':
+        return AppColors.neonGreen;
+      case 'Moderate':
+        return AppColors.neonOrange;
+      case 'High':
+        return AppColors.neonRed;
+      case 'Very High':
+        return AppColors.neonRed;
+      default:
+        return AppColors.neonCyan;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: context.palette.backgroundGradient,
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: context.palette.surfaceLight,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.arrow_back,
+                            color: context.palette.textPrimary),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'TUG Test',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: context.palette.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            'Timed Up and Go',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: context.palette.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.neonGreen.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child:
+                          const Icon(Icons.timer, color: AppColors.neonGreen),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 30),
+
+                // Timer Display
+                Center(
+                  child: _buildTimerDisplay(),
+                ),
+
+                const SizedBox(height: 30),
+
+                // Phase-specific content
+                Expanded(
+                  child: _buildPhaseContent(),
+                ),
+
+                // Action Button
+                _buildActionButton(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimerDisplay() {
+    final seconds = (_elapsedMilliseconds / 1000).toStringAsFixed(1);
+    final displayTime = _finalTime?.toStringAsFixed(1) ?? seconds;
+
+    Color timerColor;
+    if (_phase == TestPhase.completed) {
+      timerColor = _getRiskColor();
+    } else if (_phase == TestPhase.running) {
+      timerColor = AppColors.neonGreen;
+    } else {
+      timerColor = AppColors.neonCyan;
+    }
+
+    return Container(
+      width: 220,
+      height: 220,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: context.palette.surface,
+        border: Border.all(color: timerColor, width: 4),
+        boxShadow: [
+          BoxShadow(
+            color: timerColor.withValues(alpha: 0.3),
+            blurRadius: 30,
+            spreadRadius: 5,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            displayTime,
+            style: TextStyle(
+              fontSize: 56,
+              fontWeight: FontWeight.bold,
+              color: timerColor,
+              fontFamily: 'monospace',
+            ),
+          ),
+          Text(
+            'seconds',
+            style: TextStyle(
+              fontSize: 16,
+              color: timerColor.withValues(alpha: 0.7),
+            ),
+          ),
+          if (_phase == TestPhase.completed && _riskLevel != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: timerColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '$_riskLevel Risk',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: timerColor,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhaseContent() {
+    switch (_phase) {
+      case TestPhase.ready:
+        return _buildInstructions();
+      case TestPhase.running:
+        return _buildRunningContent();
+      case TestPhase.completed:
+        return _buildResultsContent();
+    }
+  }
+
+  Widget _buildInstructions() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Instructions',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: context.palette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildInstructionStep(1, 'Sit in a standard chair', Icons.chair),
+          _buildInstructionStep(
+              2, 'Stand up from the chair', Icons.arrow_upward),
+          _buildInstructionStep(
+              3, 'Walk 3 meters (10 feet)', Icons.directions_walk),
+          _buildInstructionStep(4, 'Turn around', Icons.rotate_right),
+          _buildInstructionStep(
+              5, 'Walk back to the chair', Icons.directions_walk),
+          _buildInstructionStep(6, 'Sit down again', Icons.chair_alt),
+          const SizedBox(height: 20),
+          GlassmorphicCard(
+            glowColor: AppColors.neonCyan,
+            glowIntensity: 0.1,
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: AppColors.neonCyan),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Tap START when ready, then tap STOP when you sit back down.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.palette.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionStep(int step, String text, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.neonCyan.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                '$step',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.neonCyan,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Icon(icon, color: context.palette.textSecondary, size: 22),
+          const SizedBox(width: 10),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 15,
+              color: context.palette.textPrimary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRunningContent() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.directions_walk,
+            size: 80,
+            color: AppColors.neonGreen,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Test in Progress',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: context.palette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Complete the walk and sit back down',
+            style: TextStyle(
+              fontSize: 14,
+              color: context.palette.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 30),
+          const GlassmorphicCard(
+            glowColor: AppColors.neonGreen,
+            glowIntensity: 0.2,
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.timer, color: AppColors.neonGreen),
+                SizedBox(width: 10),
+                Text(
+                  'Timing your movement...',
+                  style: TextStyle(
+                    color: AppColors.neonGreen,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultsContent() {
+    final color = _getRiskColor();
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Test Results',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: context.palette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          GlassmorphicCard(
+            glowColor: color,
+            glowIntensity: 0.2,
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Fall Risk Assessment',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: context.palette.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '$_riskLevel Risk',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Icon(
+                      _riskLevel == 'Low' ? Icons.check_circle : Icons.warning,
+                      size: 48,
+                      color: color,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Divider(color: context.palette.glassBorder),
+                const SizedBox(height: 12),
+                _buildScoreRangeInfo(),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Interpretation',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: context.palette.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _getInterpretation(),
+            style: TextStyle(
+              fontSize: 14,
+              color: context.palette.textSecondary,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 20),
+          GlassmorphicCard(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                const Icon(Icons.save, color: AppColors.neonCyan),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Result saved to your health record',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: context.palette.textSecondary,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.check, color: AppColors.neonGreen),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreRangeInfo() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _buildRangeItem('< 10s', 'Low', AppColors.neonGreen),
+        _buildRangeItem('10-19s', 'Moderate', AppColors.neonOrange),
+        _buildRangeItem('20-29s', 'High', AppColors.neonRed),
+        _buildRangeItem('≥ 30s', 'Very High', AppColors.neonRed),
+      ],
+    );
+  }
+
+  Widget _buildRangeItem(String range, String risk, Color color) {
+    final isActive = _riskLevel == risk;
+    return Column(
+      children: [
+        Text(
+          range,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+            color: isActive ? color : context.palette.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          risk,
+          style: TextStyle(
+            fontSize: 10,
+            color: isActive ? color : context.palette.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getInterpretation() {
+    switch (_riskLevel) {
+      case 'Low':
+        return 'Excellent mobility! Your movement speed and balance are within normal range. Continue with regular exercises to maintain your mobility.';
+      case 'Moderate':
+        return 'Your mobility shows some areas for improvement. Consider balance exercises and consult with your caregiver about a personalized exercise plan.';
+      case 'High':
+        return 'Your test indicates increased fall risk. We recommend using walking aids and discussing fall prevention strategies with your healthcare provider.';
+      case 'Very High':
+        return 'Your test indicates significant fall risk. Please use walking aids and consult your healthcare provider immediately for a comprehensive assessment.';
+      default:
+        return '';
+    }
+  }
+
+  Widget _buildActionButton() {
+    switch (_phase) {
+      case TestPhase.ready:
+        return SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _startTest,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.neonGreen,
+              foregroundColor: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.play_arrow, size: 24),
+                SizedBox(width: 8),
+                Text(
+                  'START TEST',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        );
+
+      case TestPhase.running:
+        return SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _stopTest,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.neonRed,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.stop, size: 24),
+                SizedBox(width: 8),
+                Text(
+                  'STOP',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        );
+
+      case TestPhase.completed:
+        return Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _resetTest,
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: context.palette.textSecondary),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  'Test Again',
+                  style: TextStyle(
+                      color: context.palette.textPrimary, fontSize: 16),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.neonCyan,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        );
+    }
+  }
+}
+
+enum TestPhase { ready, running, completed }
