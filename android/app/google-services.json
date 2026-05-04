@@ -1,0 +1,71 @@
+{
+  "project_info": {
+    "project_number": "223712288912",
+    "project_id": "smartcare-plus-c9617",
+    "storage_bucket": "smartcare-plus-c9617.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:223712288912:android:872c04b7769b8c57003815",
+        "android_client_info": {
+          "package_name": "com.smartcare.plus"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "223712288912-4ilsoirlshqghq1m4ghuijt98gv43rpd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartcare.plus",
+            "certificate_hash": "ffda06b9d0daddce422a83067a8289f296546bdd"
+          }
+        },
+        {
+          "client_id": "223712288912-73v372ll68d7cg4knknbok2uco2koi4o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartcare.plus",
+            "certificate_hash": "0c9c7b399680b0a6b087c52e0bb8512cd6bac48d"
+          }
+        },
+        {
+          "client_id": "223712288912-fdjejrc84kqgt43bq2dhnogkhoihvg3g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartcare.plus",
+            "certificate_hash": "f6fccaa8496973ca0b40c9686efcfe117aee63f3"
+          }
+        },
+        {
+          "client_id": "223712288912-hp63vvhnjt6vvf302d0810kp0irigsnc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartcare.plus",
+            "certificate_hash": "a4b9e8abb63df22e892629a9637ce19e5db8273d"
+          }
+        },
+        {
+          "client_id": "223712288912-u2b3143d892q2jru7l4j038fmqa7a6iv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBb_2Y0RjBd8HE1j0prCMsTWR-WUkHDoDg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "223712288912-u2b3143d892q2jru7l4j038fmqa7a6iv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
